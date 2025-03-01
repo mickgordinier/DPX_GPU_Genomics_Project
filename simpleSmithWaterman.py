@@ -28,14 +28,11 @@ class SmithWatermanAligner(SequenceAligner):
     # Memo size (len(self.query) + 1) * (len(self.reference) + 1)
     self.initializeMemoMatrix()
 
-    # Print header for self.reference
     print("\nInitialized Memo Matrix:") 
     self.printMemoMatrix()
 
-    # Fill the Memo matrix
     self.performRecursiveAnalysis()
 
-    # Final print of the memoized matrix after it's fully populated
     print("\nFinal Memo Matrix:")
     self.printMemoMatrix()
     
@@ -59,6 +56,11 @@ class SmithWatermanAligner(SequenceAligner):
 
   # Fill the 2D Memo matrix
   def performRecursiveAnalysis(self) -> None:
+    
+    print("\nPerforming LCS Ananlysis")
+    print("Reference:", self.reference)
+    print("Query:", self.query)
+    print(f"(Match, Mismatch, Gap) = ({self.MATCH}, {self.MISMATCH}, {self.GAP})")
     
     for row_idx in range(1, len(self.query) + 1):
       for col_idx in range(1, len(self.reference) + 1):
@@ -105,10 +107,10 @@ class SmithWatermanAligner(SequenceAligner):
 
     while ((currentX != 0) and (currentY != 0) and self.Memo[currentY][currentX] > 0):
       
-      print(currentY, currentX)
+      # print(currentY, currentX)
       
       if (self.reference[currentX-1] == self.query[currentY-1]):
-        print("MATCH")
+        # print("MATCH")
         trackerX = self.reference[currentX-1] + trackerX
         trackerStar = "*" + trackerStar
         trackerY = self.reference[currentX-1] + trackerY
@@ -117,7 +119,7 @@ class SmithWatermanAligner(SequenceAligner):
         currentY-=1
         
       elif (self.Memo[currentY-1][currentX-1] >= max(self.Memo[currentY][currentX-1], self.Memo[currentY-1][currentX])):
-        print("MISMATCH")
+        # print("MISMATCH")
         trackerX = self.reference[currentX-1] + trackerX
         trackerStar = "|" + trackerStar
         trackerY = self.query[currentX-1] + trackerY
@@ -126,7 +128,7 @@ class SmithWatermanAligner(SequenceAligner):
         currentY-=1
         
       elif (self.Memo[currentY][currentX-1] > self.Memo[currentY-1][currentX]):
-        print("INSERTION?")
+        # print("INSERTION?")
         trackerX = "_" + trackerX
         trackerStar = " " + trackerStar
         trackerY = self.query[currentY-1] + trackerY
