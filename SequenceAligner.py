@@ -11,9 +11,15 @@ class SequenceAligner(ABC):
     self.reference = reference
     self.query = query
     self.Memo = None
+    self.backtrackMatrix = None
   
   # Prints the matrix in a nice format
-  def printMemoMatrix(self) -> str:
+  def printMemoMatrix(self, title:str) -> None:
+    
+    print("\n============================================")
+    print(title, RED + "REFERENCE " + GREEN + "QUERY" + RESET)
+    print("--------------------------------------------\n")
+    
     lineToPrint = "          "
     for char in self.reference:
         lineToPrint += char + "    "
@@ -36,11 +42,14 @@ class SequenceAligner(ABC):
     # Add each character of query to each row
     matrix_rows[0] = "  " + matrix_rows[0]
     for row_idx in range(1, len(self.query)+1):
-      matrix_rows[row_idx] = f"{GREEN}{self.reference[row_idx]}{RESET} {matrix_rows[row_idx]}"
+      matrix_rows[row_idx] = f"{GREEN}{self.query[row_idx-1]}{RESET} {matrix_rows[row_idx]}"
     
     matrix_str = "\n".join(matrix_rows)
     
     print(matrix_str)
+    
+    print("\n============================================\n")
+    
   
   # Functions below must be overrided by the other sequence algorithms
   
@@ -57,6 +66,6 @@ class SequenceAligner(ABC):
     pass
   
   @abstractmethod
-  def backtrack(self):
+  def backtrackPrintAllPaths(self):
     pass
   
