@@ -54,6 +54,8 @@ class NeedlemanWunschAligner(SequenceAligner):
       
     for y_idx in range(0, len(self.query)+1):
       self.Memo[y_idx][0] = y_idx * self.GAP
+    
+    return
       
 
   # Fill the 2D self.Memo matrix
@@ -83,6 +85,10 @@ class NeedlemanWunschAligner(SequenceAligner):
         self.backtrackMatrix[row_idx-1][col_idx-1][CORNER] = (corner_score == self.Memo[row_idx][col_idx])
         self.backtrackMatrix[row_idx-1][col_idx-1][LEFT_GAP] = (left_gap == self.Memo[row_idx][col_idx])
         self.backtrackMatrix[row_idx-1][col_idx-1][UPPER_GAP] = (upper_gap == self.Memo[row_idx][col_idx])  
+      # end for col_idx
+    # end for row_idx
+    
+    return
     
 
   # Performing backtracking to get longest subsequence
@@ -119,7 +125,7 @@ class NeedlemanWunschAligner(SequenceAligner):
       trackerQuery = path[4]
       
       # If either of the indices are 0, we have traversed through the sequence
-      if ((currentReferenceIdx != 0) and (currentQueryIdx != 0)):
+      if (not((currentReferenceIdx == 0) and (currentQueryIdx == 0))):
         
         if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][CORNER] and
             self.reference[currentReferenceIdx-1] == self.query[currentQueryIdx-1]):
@@ -131,6 +137,7 @@ class NeedlemanWunschAligner(SequenceAligner):
             "*" + trackerConnection, 
             self.query[currentQueryIdx-1] + trackerQuery]
           )
+        #end if match
           
         if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][CORNER] and
             self.reference[currentReferenceIdx-1] != self.query[currentQueryIdx-1]):
@@ -142,6 +149,7 @@ class NeedlemanWunschAligner(SequenceAligner):
             "|" + trackerConnection, 
             self.query[currentQueryIdx-1] + trackerQuery]
           )
+        #end if mismatch
           
         if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][LEFT_GAP]):
           
@@ -152,6 +160,7 @@ class NeedlemanWunschAligner(SequenceAligner):
             " " + trackerConnection, 
             "_" + trackerQuery]
           )
+        #end if left gap
           
         if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][UPPER_GAP]):
           
@@ -159,14 +168,21 @@ class NeedlemanWunschAligner(SequenceAligner):
             currentReferenceIdx, 
             currentQueryIdx-1, 
             "_" + trackerReference, 
-            "|" + trackerConnection, 
+            " " + trackerConnection, 
             self.query[currentQueryIdx-1] + trackerQuery]
           )
+        #end if upper gap
+      
+      # end if trace not completed
           
       else:
+        # Given Path Trace has reached  the border and is finished
         print()
         print(trackerReference)
         print(trackerConnection)
         print(trackerQuery)
         
+    # end while
     print()
+    
+    return

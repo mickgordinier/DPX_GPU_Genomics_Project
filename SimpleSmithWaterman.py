@@ -1,8 +1,13 @@
 import numpy as np
+from collections import deque
 from SequenceAligner import SequenceAligner
 
 # Performing Simple Smith Waterman
 # Local Sequence Alignment
+
+CORNER = 0
+LEFT_GAP = 1
+UPPER_GAP = 2
 
 # Differences from Needleman-Wunsch --> Smith-Waterman
 #   i. Initialization is all 0s instead of subtracting by gap score
@@ -21,26 +26,24 @@ class SmithWatermanAligner(SequenceAligner):
     
   
   def execute(self):
+    
+    print("\nExecuting Default Smith-Waterman")
+    print("Reference:", self.reference)
+    print("Query:", self.query)
+    print(f"(Match, Mismatch, Gap) = ({self.MATCH}, {self.MISMATCH}, {self.GAP})")
+    
     # Initialize Memo correctly
     # Memo size (len(self.query) + 1) * (len(self.reference) + 1)
     self.initializeMemoMatrix()
 
-    print("\nInitialized Memo Matrix:") 
-    self.printMemoMatrix()
+    self.printMemoMatrix("Initialized Memo Matrix:")
 
     self.performRecursiveAnalysis()
 
-    print("\nFinal Memo Matrix:")
-    self.printMemoMatrix()
+    self.printMemoMatrix("Final Memo Matrix:")
     
-    # Performing backtracking to get longest subsequence
-    trackerX, trackerY, trackerStar, similarityScore = self.backtrack()
-    
-    print()
-    print("TrackerX:", trackerX)
-    print("TrackerS:", trackerStar)
-    print("TrackerY:", trackerY)
-    print("Similarity Score:", similarityScore)
+    # Performing backtracking and printing out all the subsequences
+    self.backtrackPrintAllPaths()
 
 
   # Memo size (len(self.query) + 1) * (len(self.reference) + 1)
@@ -54,90 +57,153 @@ class SmithWatermanAligner(SequenceAligner):
   # Fill the 2D Memo matrix
   def performRecursiveAnalysis(self) -> None:
     
-    print("\nPerforming LCS Ananlysis")
-    print("Reference:", self.reference)
-    print("Query:", self.query)
-    print(f"(Match, Mismatch, Gap) = ({self.MATCH}, {self.MISMATCH}, {self.GAP})")
+    # Building a backtracking matrix to keep track of where it came from
+    # Each element has 3 places it could backtrack to [corner, left, up]
+    # Keeping track for each element whether or not it came from that location
+    # It is possible to come from multiple locations (branches of backtracking)
+    self.backtrackMatrix = np.zeros((len(self.query), len(self.reference), 3), dtype=bool)
     
     for row_idx in range(1, len(self.query) + 1):
       for col_idx in range(1, len(self.reference) + 1):
         
-        # Calculating max of either GAP score
-        self.Memo[row_idx][col_idx] = max(
-                        self.Memo[row_idx - 1][col_idx] + self.GAP, 
-                        self.Memo[row_idx][col_idx - 1] + self.GAP)
+        upper_gap = self.Memo[row_idx - 1][col_idx] + self.GAP
+        left_gap = self.Memo[row_idx][col_idx - 1] + self.GAP
         
-        # If match, calculate which one is larger
+        # If match, add the match score from the corner
         if (self.query[row_idx - 1] == self.reference[col_idx - 1]):
-          match_score = self.Memo[row_idx - 1][col_idx - 1] + self.MATCH
-          self.Memo[row_idx][col_idx] = max(self.Memo[row_idx][col_idx], match_score)
-        
-        # If mismatch, calculate which one is larger
+          corner_score = self.Memo[row_idx - 1][col_idx - 1] + self.MATCH
+        # Otherwise, add the penalty score from the corner
         else:
-          mismatch_score = self.Memo[row_idx - 1][col_idx - 1] + self.MISMATCH
-          self.Memo[row_idx][col_idx] = max(self.Memo[row_idx][col_idx], mismatch_score)
+          corner_score = self.Memo[row_idx - 1][col_idx - 1] + self.MISMATCH
+          
+        temp_greatest = max(upper_gap, left_gap, corner_score)
         
         # NEW: Each element has a minimum value of 0
         #      No element in Smith-Waterman can be negative
-        self.Memo[row_idx][col_idx] = max(0, self.Memo[row_idx][col_idx])
-          
+        self.Memo[row_idx][col_idx] = max(0, temp_greatest)
+        
+        # If the greatest amongst the 3 is still negative, no backtracking
+        if (temp_greatest < 0):
+          self.backtrackMatrix[row_idx-1][col_idx-1][CORNER] = 0
+          self.backtrackMatrix[row_idx-1][col_idx-1][LEFT_GAP] = 0
+          self.backtrackMatrix[row_idx-1][col_idx-1][UPPER_GAP] = 0
+        
+        # Determining where max value came from
+        else:
+          self.backtrackMatrix[row_idx-1][col_idx-1][CORNER] = (corner_score == self.Memo[row_idx][col_idx])
+          self.backtrackMatrix[row_idx-1][col_idx-1][LEFT_GAP] = (left_gap == self.Memo[row_idx][col_idx])
+          self.backtrackMatrix[row_idx-1][col_idx-1][UPPER_GAP] = (upper_gap == self.Memo[row_idx][col_idx]) 
+        # end if
+        
+      # end for col_idx
+    # end for row_idx
+    
     return
 
 
   # Performing backtracking to get longest subsequence
-  def backtrack(self):
+  def backtrackPrintAllPaths(self):
     
     # Finding location of largest similarity on 2D array
-    a = np.unravel_index(self.Memo.argmax(), self.Memo.shape)
     
-    bestSimilarityScore = self.Memo[a]
+    bestSimilarityScore = np.max(self.Memo)
+    rowIndices, colIndices = np.where(self.Memo == bestSimilarityScore)
     
+    # Appending the bottom right location to the queue
+    # That will always be the starting point for needleman-wunsch
+    # The index is pointing to the last element of the matrix, not of the strings
+    pathsQueue = deque()
+    
+    for max_score_idx in range(len(rowIndices)):
+      
+      currentReferenceIdx = colIndices[max_score_idx]
+      currentQueryIdx = rowIndices[max_score_idx]
+      trackerReference = ""
+      trackerConnection = ""
+      trackerQuery = ""
+      
+      pathsQueue.append([
+        currentReferenceIdx, 
+        currentQueryIdx, 
+        trackerReference, 
+        trackerConnection, 
+        trackerQuery]
+      )
+    
+    
+    # While there are still paths to traverse
+    while (pathsQueue):
+      
+      path = pathsQueue.popleft()
+      
+      currentReferenceIdx = path[0]
+      currentQueryIdx = path[1]
+      trackerReference = path[2]
+      trackerConnection = path[3]
+      trackerQuery = path[4]
+      
+      # If either of the indices are 0, we have traversed through the sequence
+      if ((currentQueryIdx != 0) and
+          (currentReferenceIdx != 0) and 
+          (self.Memo[currentQueryIdx][currentReferenceIdx] > 0)):
+        
+        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][CORNER] and
+            self.reference[currentReferenceIdx-1] == self.query[currentQueryIdx-1]):
+          
+          pathsQueue.append([
+            currentReferenceIdx-1, 
+            currentQueryIdx-1, 
+            self.reference[currentReferenceIdx-1] + trackerReference, 
+            "*" + trackerConnection, 
+            self.query[currentQueryIdx-1] + trackerQuery]
+          )
+        #end if match
+          
+        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][CORNER] and
+            self.reference[currentReferenceIdx-1] != self.query[currentQueryIdx-1]):
+          
+          pathsQueue.append([
+            currentReferenceIdx-1, 
+            currentQueryIdx-1, 
+            self.reference[currentReferenceIdx-1] + trackerReference, 
+            "|" + trackerConnection, 
+            self.query[currentQueryIdx-1] + trackerQuery]
+          )
+        #end if mismatch
+          
+        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][LEFT_GAP]):
+          
+          pathsQueue.append([
+            currentReferenceIdx-1, 
+            currentQueryIdx, 
+            self.reference[currentReferenceIdx-1] + trackerReference, 
+            " " + trackerConnection, 
+            "_" + trackerQuery]
+          )
+        #end if left gap
+          
+        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][UPPER_GAP]):
+          
+          pathsQueue.append([
+            currentReferenceIdx, 
+            currentQueryIdx-1, 
+            "_" + trackerReference, 
+            " " + trackerConnection, 
+            self.query[currentQueryIdx-1] + trackerQuery]
+          )
+        #end if upper gap
+      
+      # end if trace not completed
+          
+      else:
+        # Given Path Trace has reached  the border and is finished
+        print()
+        print(trackerReference)
+        print(trackerConnection)
+        print(trackerQuery)
+        
+    # end while
     print()
     
-    # Performing backtracking prcoess
-    currentY = a[0]
-    currentX = a[1]
-    
-    trackerX = ""
-    trackerY = ""
-    trackerStar = ""
-
-    while ((currentX != 0) and (currentY != 0) and self.Memo[currentY][currentX] > 0):
-      
-      # print(currentY, currentX)
-      
-      if (self.reference[currentX-1] == self.query[currentY-1]):
-        # print("MATCH")
-        trackerX = self.reference[currentX-1] + trackerX
-        trackerStar = "*" + trackerStar
-        trackerY = self.reference[currentX-1] + trackerY
-        
-        currentX-=1
-        currentY-=1
-        
-      elif (self.Memo[currentY-1][currentX-1] >= max(self.Memo[currentY][currentX-1], self.Memo[currentY-1][currentX])):
-        # print("MISMATCH")
-        trackerX = self.reference[currentX-1] + trackerX
-        trackerStar = "|" + trackerStar
-        trackerY = self.query[currentX-1] + trackerY
-        
-        currentX-=1
-        currentY-=1
-        
-      elif (self.Memo[currentY][currentX-1] > self.Memo[currentY-1][currentX]):
-        # print("INSERTION?")
-        trackerX = "_" + trackerX
-        trackerStar = " " + trackerStar
-        trackerY = self.query[currentY-1] + trackerY
-        
-        currentY-=1
-        
-      else:
-        print("DELETION?")
-        trackerX = self.reference[currentX-1] + trackerX
-        trackerStar = " " + trackerStar
-        trackerY = "_" + trackerY
-        
-        currentX-=1
-    
-    return trackerX, trackerY, trackerStar, bestSimilarityScore
+    return
+  
