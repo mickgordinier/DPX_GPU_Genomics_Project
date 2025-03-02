@@ -51,6 +51,8 @@ class SequenceAligner(ABC):
     print("\n============================================\n")
     
   
+    
+  
   # Functions below must be overrided by the other sequence algorithms
   
   @abstractmethod

@@ -1,4 +1,5 @@
 import numpy as np
+from collections import deque
 from SequenceAligner import SequenceAligner
 
 # Find the longest subseqences between 2 strings (self.reference and self.query)
@@ -10,27 +11,25 @@ class LongestCommonSubsequence(SequenceAligner):
   def __init__(self, reference, query):
     super().__init__(reference, query)
     
+  
+  def execute(self):
     
-  # Performs Longest Common Substring on 2 Strings
-  def execute(self) -> None:
-
-    # Initialize self.Memo correctly
-    # self.Memo size (len(self.query) + 1) * (len(self.reference) + 1)
+    print("\nExecuting Default Longest Common Subsequence")
+    print("Reference:", self.reference)
+    print("Query:", self.query)
+    
+    # Initialize Memo correctly
+    # Memo size (len(self.query) + 1) * (len(self.reference) + 1)
     self.initializeMemoMatrix()
 
-    print("\nInitialized self.Memo Matrix:") 
-    self.printMemoMatrix()
+    self.printMemoMatrix("Initialized Memo Matrix:")
 
     self.performRecursiveAnalysis()
 
-    print("\nFinal self.Memo Matrix:")
-    self.printMemoMatrix()
+    self.printMemoMatrix("Final Memo Matrix:")
     
-    # Performing backtracking to get longest subsequence
-    lcs = self.backtrack()
-    
-    print()
-    print("Lonest Subsequence:", lcs)
+    # Performing backtracking and printing out all the subsequences
+    self.backtrackPrintAllPaths()
     
     
   # self.Memo size (len(self.query) + 1) * (len(self.reference) + 1)
@@ -40,10 +39,6 @@ class LongestCommonSubsequence(SequenceAligner):
   
   # Fill the 2D self.Memo matrix
   def performRecursiveAnalysis(self) -> None:
-    
-    print("\nPerforming LCS Ananlysis")
-    print("Reference:", self.reference)
-    print("Query:", self.query)
     
     for row_idx in range(1, len(self.query) + 1):
       for col_idx in range(1, len(self.reference) + 1):
@@ -56,21 +51,64 @@ class LongestCommonSubsequence(SequenceAligner):
     return
   
   # Performing backtracking to get longest subsequence
-  def backtrack(self) -> None:
+  def backtrackPrintAllPaths(self) -> None:
     
-    currentX = len(self.reference)
-    currentY = len(self.query)
-
-    tracker = ""
-
-    while ((currentX != 0) and (currentY != 0)):
-      if (self.reference[currentX-1] == self.query[currentY-1]):
-        tracker = self.reference[currentX-1] + tracker
-        currentX-=1
-        currentY-=1
-      elif (self.Memo[currentY][currentX-1] > self.Memo[currentY-1][currentX]):
-        currentX-=1
+    # Appending the bottom right location to the queue
+    # That will always be the starting point for needleman-wunsch
+    # The index is pointing to the last element of the matrix, not of the strings
+    currentReferenceIdx = len(self.reference)
+    currentQueryIdx = len(self.query)
+    trackerLCS = ""
+    
+    pathsQueue = deque()
+    
+    pathsQueue.append([
+      currentReferenceIdx, 
+      currentQueryIdx, 
+      trackerLCS]
+    )
+    
+    # While there are still paths to traverse
+    while (pathsQueue):
+      
+      path = pathsQueue.popleft()
+      
+      currentReferenceIdx = path[0]
+      currentQueryIdx = path[1]
+      trackerLCS = path[2]
+      
+      # If either of the indices reaches 0, then there is no more matches to be found
+      if ((currentReferenceIdx != 0) and (currentQueryIdx != 0)):
+        
+        if (self.reference[currentReferenceIdx-1] == self.query[currentQueryIdx-1]):
+          
+          pathsQueue.append([
+            currentReferenceIdx-1, 
+            currentQueryIdx-1, 
+            self.reference[currentReferenceIdx-1] + trackerLCS]
+          )
+          continue
+        
+        # DELIBERATELY 2 IF STATEMENTS
+        # Both are true if they are equal --> Need to check both paths (If no match)
+        if (self.Memo[currentQueryIdx][currentReferenceIdx-1] >= self.Memo[currentQueryIdx-1][currentReferenceIdx]):
+          
+          pathsQueue.append([
+            currentReferenceIdx-1, 
+            currentQueryIdx, 
+            trackerLCS]
+          )
+          
+        if (self.Memo[currentQueryIdx][currentReferenceIdx-1] <= self.Memo[currentQueryIdx-1][currentReferenceIdx]):
+          
+          pathsQueue.append([
+            currentReferenceIdx, 
+            currentQueryIdx-1, 
+            trackerLCS]
+          )
+      
       else:
-        currentY-=1
-    
-    return tracker
+        # Given Path Trace has reached  the border and is finished
+        print()
+        print(trackerLCS)
+    print()
