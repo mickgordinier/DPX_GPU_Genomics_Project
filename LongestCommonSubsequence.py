@@ -111,4 +111,6 @@ class LongestCommonSubsequence(SequenceAligner):
         # Given Path Trace has reached  the border and is finished
         print()
         print(trackerLCS)
+        
     print()
+    

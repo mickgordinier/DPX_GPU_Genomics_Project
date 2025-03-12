@@ -1,6 +1,7 @@
-from SimpleSmithWaterman import SmithWatermanAligner
-from SimpleNeedlemanWunsch import NeedlemanWunschAligner
+from LinearSmithWaterman import LinearSmithWatermanAligner
+from LinearNeedlemanWunsch import LinearNeedlemanWunschAligner
 from LongestCommonSubsequence import LongestCommonSubsequence
+from AffineNeedlemanWunsch import AffineNeedlemanWunschAligner
 
 # This test is to showcase the close differences/similarities
 # between the sequence alignment algorithms: 
@@ -13,8 +14,8 @@ from LongestCommonSubsequence import LongestCommonSubsequence
 # This algorithm is a global sequence aligner, with no penalty scores.
 # There is no "scoring", just wanting to MAXIMIZE LETTER COUNT (Matching)
 # Ex. LCS("AxBxCxDx", "yAyyByCyDy") = "ABCD"
-lcs = LongestCommonSubsequence("ABCD", "ABCDABCD")
-lcs.execute()
+# lcs = LongestCommonSubsequence("ABCD", "ABCDABCD")
+# lcs.execute()
 
 #   ii. Needleman-Wunsch (Global Sequence Aligner)
 # This algorithm focusses on globally aligning 2 genomic sequences ("Reference" and "Query" genomes).
@@ -22,13 +23,14 @@ lcs.execute()
 # Introducing integer match, mismatch, gap penalties for each iteration
 # If their sizes majorly differ, massive similarity score hit
 # Backtracking starts at bottom right of matrix always and matrix initialization get increasingly negative
-nw = NeedlemanWunschAligner("GGATCGA", "GAATTCAGT", 5, -2, -3)
-nw.execute()
+# nw = LinearNeedlemanWunschAligner("ABxxxCDE", "ABCDE", 5, -2, -3)
+# nw.execute()
 
-# iii. Smith-Waterman (Local Sequence Aligner)
+# iii. Simple Fixed Smith-Waterman (Local Sequence Aligner)
 # Variant of Needleman-Wunsch, finding local alignment between 2 genomic sequences.
 # With SW, genmoes can be size independent as subsequence can start anywhere from the reference.
 # Same match, mismatch, gap penalty scoring as NW
 # Backtracking starts at whichever element gives the highest similarity score (Multiple locations possible)
-sw = SmithWatermanAligner("GAATTCAGT", "GGATCGA", 5, -2, -3)
-sw.execute()
+# Fixed - Gap scoring is the same constant value throughout
+# sw = LinearSmithWatermanAligner("ACGT", "AGTC", 2, -1, -1)
+# sw.execute()
