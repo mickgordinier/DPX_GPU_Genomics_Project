@@ -6,14 +6,16 @@ using std::max;
 using std::string;
 
 void LinearSmithWaterman::init_matrix(){
-    cout << "Initializing Matrix...\n";
+    cout << "[Initializing Matrix...]\n";
     size_t num_rows = query_str.size();
     size_t num_cols = reference_str.size();
 
+    // Initialize scoring memo
     vector<int> temp_memo;
     temp_memo.resize(num_cols + 1, 0);
     memo.resize(num_rows + 1, temp_memo);
 
+    // Initialize backtracking memo
     vector<direction> temp_backtrack;
     temp_backtrack.resize(num_cols, NONE);
     backtrack_memo.resize(num_rows, temp_backtrack);
@@ -23,8 +25,9 @@ void LinearSmithWaterman::print_matrix(){
     size_t num_rows = query_str.size();
     size_t num_cols = reference_str.size();
 
-    cout << "Query: " << query_str << " Size: " << num_rows << "\n";
+    // Print parameters
     cout << "Reference: " << reference_str << " Size: " << num_cols << "\n";
+    cout << "Query: " << query_str << " Size: " << num_rows << "\n";
 
     cout << "Matrix Dim: [ " << num_rows + 1 << " x " << num_cols + 1 << " ]\n";
 
@@ -63,13 +66,16 @@ void LinearSmithWaterman::print_matrix(){
 }
 
 void LinearSmithWaterman::score_matrix() {
-    cout << "Scoring...\n";
+    cout << "[Scoring...]\n";
+
+    // Score the smith waterman matrix, keeping track of where a cell got its value
     for(size_t row_idx = 1; row_idx < memo.size(); row_idx++) {
         for(size_t col_idx = 1; col_idx < memo[0].size(); col_idx++) {
             int upper_score;
             int left_score;
             int corner_score;
 
+            // Calculate potential gap scores
             upper_score = memo[row_idx - 1][col_idx] + gap_weight;
             left_score = memo[row_idx][col_idx - 1] + gap_weight;
             
@@ -84,13 +90,16 @@ void LinearSmithWaterman::score_matrix() {
                 corner_score = memo[row_idx - 1][col_idx - 1] + mismatch_weight;
                 corner_direction = CORNER_MISMATCH;
             }
+
+            // Find the largest of the 3 potential scores
             int temp_greatest = max(upper_score, max(left_score, corner_score));
             
-            // NEW: Apply ReLU to score
+            // Apply ReLU to score
             memo[row_idx][col_idx] = max(0, temp_greatest);
             
             // If the greatest amongst the 3 is still negative, no backtracking
             if (temp_greatest < 0) {continue;}
+            // Otherwise, note where the cell needs to backtrack to
             else if(corner_score == memo[row_idx][col_idx]){backtrack_memo[row_idx-1][col_idx-1] = corner_direction;} 
             else if (left_score == memo[row_idx][col_idx]) {backtrack_memo[row_idx-1][col_idx-1] = LEFT_GAP;} 
             else {backtrack_memo[row_idx-1][col_idx-1] = UPPER_GAP;}// end if
@@ -102,50 +111,41 @@ void LinearSmithWaterman::score_matrix() {
 }
 
 void LinearSmithWaterman::backtrack(){
-    cout << "Finding max cells...\n";
+    cout << "[Finding max cells...]\n";
 
-    int max_val = 0;
-    // Work from bottom right of matrix so we can hopefully add less fake maxes to our vector
+    // We need to find the max score of the entire matrix
+    // + note the cell(s) that have this value
+
+    // Whenever we find a new max value we need to clear our backtracking queue
+    // --> As a result, start from the bottom right so we hopefully 
+    // end up clearing the queue fewer times
     for(size_t row_idx = memo.size() - 1; row_idx > 0; row_idx--) {
         for(size_t col_idx = memo[0].size() - 1; col_idx > 0; col_idx--) {
-            int new_max_val = max(max_val, memo[row_idx][col_idx]);
-            if(new_max_val > max_val){
+            int new_max_score = max(max_score, memo[row_idx][col_idx]);
+            // Clear the queue if we have a new max val + store it
+            if(new_max_score > max_score){
                 backtrack_queue.clear();
-                max_val = new_max_val;
+                max_score = new_max_score;
                 DEBUG_PRINT("backtrack", "Clearing backtrack queue");
             }
-            if(memo[row_idx][col_idx] == max_val){
-                char relation;
-                switch (backtrack_memo[row_idx - 1][col_idx - 1]) {
-                    case CORNER_MATCH:   
-                        relation = '*';
-                        break;
-                    // end if match
-                    case CORNER_MISMATCH:
-                        relation = '*';
-                        break;
-                    // end if mismatch
-                    default:
-                        relation = ' ';
-                        break; 
-                    // end if default
-                } // end switch
-                string query_begin(1, query_str[row_idx - 1]);
-                string relation_begin(1, relation);
-                string reference_begin(1, reference_str[col_idx - 1]);
-                backtrack_info new_info = {query_begin, relation_begin, reference_begin, row_idx, col_idx, max_val};
+            // Add the new starting cell to the backtracking queue
+            if(memo[row_idx][col_idx] == max_score){
+                backtrack_info new_info = {"", "", "", row_idx, col_idx};
                 backtrack_queue.push_back(new_info);
-                DEBUG_PRINT("backtrack", "Adding [" << row_idx << ", " << col_idx << "] to backtrack queue with Val: " << max_val);
+                DEBUG_PRINT("backtrack", "Adding [" << row_idx << ", " << col_idx << "] to backtrack queue with Val: " << max_score);
             }
         }
     }
 
-    cout << "Backtracking...\n";
+    cout << "\n[Backtracking...]\n";
+    // Now do the actual backtracking
     while(!backtrack_queue.empty()){
+        // Remove a cell from our queue
         backtrack_info current_cell = backtrack_queue.front();
         backtrack_queue.pop_front();
 
         backtrack_info next_cell;
+        // Determine the current cell's predecessor
         switch (backtrack_memo[current_cell.row_idx-1][current_cell.col_idx-1]) {
             case CORNER_MATCH:   
                 next_cell.col_idx = current_cell.col_idx-1;
@@ -175,8 +175,8 @@ void LinearSmithWaterman::backtrack(){
             // end if left gap
             
             case UPPER_GAP:
-                next_cell.col_idx = current_cell.col_idx-1;
-                next_cell.row_idx = current_cell.row_idx;
+                next_cell.col_idx = current_cell.col_idx;
+                next_cell.row_idx = current_cell.row_idx-1;
                 next_cell.reference_sequence = "_";
                 next_cell.pair_relation = " ";
                 next_cell.query_sequence = query_str[current_cell.row_idx-1];
@@ -186,15 +186,22 @@ void LinearSmithWaterman::backtrack(){
             // end if upper gap
         } // end switch
 
-        // Check if the weve reached the end of the subsequence, if not, add next cell to queue
-        if(memo[next_cell.row_idx][next_cell.col_idx] != 0){
-            next_cell.reference_sequence = next_cell.reference_sequence + current_cell.reference_sequence;
-            next_cell.pair_relation = next_cell.pair_relation + current_cell.pair_relation;
-            next_cell.reference_sequence = next_cell.query_sequence + current_cell.query_sequence;
-            backtrack_queue.push_back(next_cell);
-        } else {
-            results.push_back(current_cell);
-        }
+        // Update our accumulated sequences with the current cell's reference + query index
+        DEBUG_PRINT("backtrack", "Reference: " << next_cell.reference_sequence);
+        DEBUG_PRINT("backtrack", "Relation: " << next_cell.pair_relation);
+        DEBUG_PRINT("backtrack", "Query: " << next_cell.query_sequence);
+        next_cell.reference_sequence = next_cell.reference_sequence + current_cell.reference_sequence;
+        next_cell.pair_relation = next_cell.pair_relation + current_cell.pair_relation;
+        next_cell.query_sequence = next_cell.query_sequence + current_cell.query_sequence;
+        DEBUG_PRINT("backtrack", "Cumulative Reference: " << next_cell.reference_sequence);
+        DEBUG_PRINT("backtrack", "Cumulative Relation: " << next_cell.pair_relation);
+        DEBUG_PRINT("backtrack", "Cumulative Query: " << next_cell.query_sequence);
+
+        // Check if the we've reached the end of the subsequence, if not, add cell back to queue
+        if(memo[next_cell.row_idx][next_cell.col_idx] != 0){backtrack_queue.push_back(next_cell);} 
+        // Otherwise add the struct with our completed path to our results
+        else {results.push_back(next_cell);}
+
     } // end while
     cout << std::endl;
 }
@@ -208,11 +215,11 @@ void LinearSmithWaterman::align(){
 }
 
 void LinearSmithWaterman::print_results(){
-    cout << "Scored Matrix:";
+    cout << "[Scored Matrix]\n";
     print_matrix();
 
-    cout << "# Highest Scoring Sequences: " << results.size() << "\n";
-    cout << "Sequence Pairing(s):\n";
+    cout << "[# Highest Scoring Sequences: " << results.size() << " Score: " << max_score << "]\n\n";
+    cout << "[Sequence Pairing(s)]\n";
     cout << "\n====================\n";
 
     for(size_t idx = 0; idx < results.size(); idx++){
