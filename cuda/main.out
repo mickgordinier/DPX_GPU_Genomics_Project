@@ -1,0 +1,38 @@
+Initializing Matrix...
+Query: AACG Size: 4
+Reference: AATCG Size: 5
+Matrix Dim: [ 5 x 6 ]
+          A    A    T    C    G 
+  [  0,   0,   0,   0,   0,   0],
+A [  0,   0,   0,   0,   0,   0],
+A [  0,   0,   0,   0,   0,   0],
+C [  0,   0,   0,   0,   0,   0],
+G [  0,   0,   0,   0,   0,   0],
+
+Scoring...
+
+Finding max cells...
+backtrack | Clearing backtrack queue
+backtrack | Adding [4, 5] to backtrack queue with Val: 10
+Backtracking...
+
+Scored Matrix:Query: AACG Size: 4
+Reference: AATCG Size: 5
+Matrix Dim: [ 5 x 6 ]
+          A    A    T    C    G 
+  [  0,   0,   0,   0,   0,   0],
+A [  0,   3,   3,   1,   0,   0],
+A [  0,   3,   6,   4,   2,   0],
+C [  0,   1,   4,   5,   7,   5],
+G [  0,   0,   2,   3,   5,  10],
+
+# Highest Scoring Sequences: 1
+Sequence Pairing(s):
+
+====================
+Sequence Pair: 0
+A
+* ***
+A_
+====================
+
