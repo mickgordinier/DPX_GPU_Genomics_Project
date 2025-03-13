@@ -2,7 +2,7 @@ import numpy as np
 from collections import deque
 from SequenceAligner import SequenceAligner
 
-# Performing Simple Needleman Wunsch
+# Performing Affine Needleman-Wunsch (Global) with Gotoh
 # Global Sequence Alignment
 
 RED = '\033[31m'

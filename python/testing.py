@@ -14,8 +14,8 @@ from AffineNeedlemanWunsch import AffineNeedlemanWunschAligner
 # This algorithm is a global sequence aligner, with no penalty scores.
 # There is no "scoring", just wanting to MAXIMIZE LETTER COUNT (Matching)
 # Ex. LCS("AxBxCxDx", "yAyyByCyDy") = "ABCD"
-# lcs = LongestCommonSubsequence("ABCD", "ABCDABCD")
-# lcs.execute()
+lcs = LongestCommonSubsequence("AxBxCxDx", "yAyyByCyDy")
+lcs.execute()
 
 #   ii. Needleman-Wunsch (Global Sequence Aligner)
 # This algorithm focusses on globally aligning 2 genomic sequences ("Reference" and "Query" genomes).
@@ -32,5 +32,5 @@ from AffineNeedlemanWunsch import AffineNeedlemanWunschAligner
 # Same match, mismatch, gap penalty scoring as NW
 # Backtracking starts at whichever element gives the highest similarity score (Multiple locations possible)
 # Fixed - Gap scoring is the same constant value throughout
-# sw = LinearSmithWatermanAligner("ACGT", "AGTC", 2, -1, -1)
+# sw = LinearSmithWatermanAligner("AATCG", "AACG", 2, -2, -4)
 # sw.execute()
