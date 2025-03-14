@@ -5,6 +5,9 @@ from SequenceAligner import SequenceAligner
 # Performing Simple Smith Waterman
 # Local Sequence Alignment
 
+# TODO: BSW evidently usually uses affine gap penalties, so should add that later
+# TODO: fix to use minimum space needed
+
 CORNER = 0
 LEFT_GAP = 1
 UPPER_GAP = 2
@@ -15,14 +18,15 @@ UPPER_GAP = 2
 # iii. Similarity score is determine by best score within the entire matrix, not the end score
 #  iv. Backtracking starts at the highest similarity score
 
-class LinearSmithWatermanAligner(SequenceAligner):
-  
-  def __init__(self, reference, query, MATCH, MISMATCH, GAP):
+class LinearBandedSmithWatermanAligner(SequenceAligner):
+
+  def __init__(self, reference, query, MATCH, MISMATCH, GAP, BAND):
     super().__init__(reference, query)
     
     self.MATCH = MATCH         # Diagonal Matches
     self.MISMATCH = MISMATCH   # Diagonal Mismatches
     self.GAP = GAP             # Vertical/Horizontal Insertion/Deletions
+    self.BAND = BAND           # Band width
     
   
   def execute(self):
@@ -30,7 +34,7 @@ class LinearSmithWatermanAligner(SequenceAligner):
     print("\nExecuting Banded Smith-Waterman")
     print("Reference:", self.reference)
     print("Query:", self.query)
-    print(f"(Match, Mismatch, Gap) = ({self.MATCH}, {self.MISMATCH}, {self.GAP})")
+    print(f"(Match, Mismatch, Gap, Band) = ({self.MATCH}, {self.MISMATCH}, {self.GAP}. {self.BAND})")
     
     # Initialize Memo correctly
     # Memo size (len(self.query) + 1) * (len(self.reference) + 1)
@@ -62,10 +66,9 @@ class LinearSmithWatermanAligner(SequenceAligner):
     # Keeping track for each element whether or not it came from that location
     # It is possible to come from multiple locations (branches of backtracking)
     self.backtrackMatrix = np.zeros((len(self.query), len(self.reference), 3), dtype=bool)
-    
     for row_idx in range(1, len(self.query) + 1):
-      for col_idx in range(1, len(self.reference) + 1):
-        
+      # only iterate over elements within the band
+      for col_idx in range(1 + max(0, row_idx - self.BAND), min(row_idx + self.BAND, len(self.reference)+1)):
         upper_gap = self.Memo[row_idx - 1][col_idx] + self.GAP
         left_gap = self.Memo[row_idx][col_idx - 1] + self.GAP
         
@@ -206,4 +209,3 @@ class LinearSmithWatermanAligner(SequenceAligner):
     print()
     
     return
-  
