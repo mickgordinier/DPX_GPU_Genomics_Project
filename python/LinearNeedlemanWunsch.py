@@ -5,9 +5,9 @@ from SequenceAligner import SequenceAligner
 # Performing Simple Needleman Wunsch
 # Global Sequence Alignment
 
-CORNER = 0
-LEFT_GAP = 1
-UPPER_GAP = 2
+MATCH_MISMATCH_IDX = 0
+QUERY_INSERTION_IDX = 1
+QUERY_DELETION_IDX = 2
 
 # Differences from Longest Common Subsequence --> Needleman-Wunsch
 #   i. Now penalties are enforced (GAP and MISMATCH)
@@ -66,25 +66,28 @@ class LinearNeedlemanWunschAligner(SequenceAligner):
     # Keeping track for each element whether or not it came from that location
     # It is possible to come from multiple locations (branches of backtracking)
     self.backtrackMatrix = np.zeros((len(self.query), len(self.reference), 3), dtype=bool)
-  
-    for row_idx in range(1, len(self.query) + 1):
-      for col_idx in range(1, len(self.reference) + 1):
+    
+    # Row 0 and column 0 already initialized
+    
+    # Going through all characters of the query sequence
+    for query_idx in range(1, len(self.query) + 1):
+      for reference_idx in range(1, len(self.reference) + 1):
         
-        upper_gap = self.Memo[row_idx - 1][col_idx] + self.GAP
-        left_gap = self.Memo[row_idx][col_idx - 1] + self.GAP
+        query_deletion_score = self.Memo[query_idx - 1][reference_idx] + self.GAP
+        query_insertion_score = self.Memo[query_idx][reference_idx - 1] + self.GAP
         
         # If match, add the match score from the corner
-        if (self.query[row_idx - 1] == self.reference[col_idx - 1]):
-          corner_score = self.Memo[row_idx - 1][col_idx - 1] + self.MATCH
+        if (self.query[query_idx - 1] == self.reference[reference_idx - 1]):
+          corner_score = self.Memo[query_idx - 1][reference_idx - 1] + self.MATCH
         # Otherwise, add the penalty score from the corner
         else:
-          corner_score = self.Memo[row_idx - 1][col_idx - 1] + self.MISMATCH
+          corner_score = self.Memo[query_idx - 1][reference_idx - 1] + self.MISMATCH
         
-        self.Memo[row_idx][col_idx] = max(upper_gap, left_gap, corner_score)
+        self.Memo[query_idx][reference_idx] = max(query_deletion_score, query_insertion_score, corner_score)
         
-        self.backtrackMatrix[row_idx-1][col_idx-1][CORNER] = (corner_score == self.Memo[row_idx][col_idx])
-        self.backtrackMatrix[row_idx-1][col_idx-1][LEFT_GAP] = (left_gap == self.Memo[row_idx][col_idx])
-        self.backtrackMatrix[row_idx-1][col_idx-1][UPPER_GAP] = (upper_gap == self.Memo[row_idx][col_idx])  
+        self.backtrackMatrix[query_idx-1][reference_idx-1][MATCH_MISMATCH_IDX] = (corner_score == self.Memo[query_idx][reference_idx])
+        self.backtrackMatrix[query_idx-1][reference_idx-1][QUERY_INSERTION_IDX] = (query_insertion_score == self.Memo[query_idx][reference_idx])
+        self.backtrackMatrix[query_idx-1][reference_idx-1][QUERY_DELETION_IDX] = (query_deletion_score == self.Memo[query_idx][reference_idx])  
       # end for col_idx
     # end for row_idx
     
@@ -127,7 +130,7 @@ class LinearNeedlemanWunschAligner(SequenceAligner):
       # If either of the indices are 0, we have traversed through the sequence
       if (not((currentReferenceIdx == 0) and (currentQueryIdx == 0))):
         
-        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][CORNER] and
+        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][MATCH_MISMATCH_IDX] and
             self.reference[currentReferenceIdx-1] == self.query[currentQueryIdx-1]):
           
           pathsQueue.append([
@@ -139,7 +142,7 @@ class LinearNeedlemanWunschAligner(SequenceAligner):
           )
         #end if match
           
-        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][CORNER] and
+        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][MATCH_MISMATCH_IDX] and
             self.reference[currentReferenceIdx-1] != self.query[currentQueryIdx-1]):
           
           pathsQueue.append([
@@ -151,7 +154,7 @@ class LinearNeedlemanWunschAligner(SequenceAligner):
           )
         #end if mismatch
           
-        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][LEFT_GAP]):
+        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][QUERY_INSERTION_IDX]):
           
           pathsQueue.append([
             currentReferenceIdx-1, 
@@ -162,7 +165,7 @@ class LinearNeedlemanWunschAligner(SequenceAligner):
           )
         #end if left gap
           
-        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][UPPER_GAP]):
+        if (self.backtrackMatrix[currentQueryIdx-1][currentReferenceIdx-1][QUERY_DELETION_IDX]):
           
           pathsQueue.append([
             currentReferenceIdx, 
