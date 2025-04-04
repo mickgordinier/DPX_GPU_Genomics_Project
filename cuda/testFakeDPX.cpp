@@ -105,6 +105,13 @@ int main() {
   assert(FakeDPX::__vibmin_u16x2(0xFFFF00FF, 0xFFFFFF00, &pred_hi, &pred_low) == 0xFFFF00FF && pred_hi && pred_low);
   assert(FakeDPX::__vibmin_u16x2(0xFFFD00FF, 0xFFFE01FF, &pred_hi, &pred_low) == 0xFFFD00FF && pred_hi && pred_low);
 
+  assert(FakeDPX::__viaddmax_s32(1, 2, 3) == 3);
+  assert(FakeDPX::__viaddmax_s32(2, 3, 1) == 5);
+  assert(FakeDPX::__viaddmax_s32(-5, -10, -30) == -15);
+
+  assert(FakeDPX::__viaddmax_u32(1, 2, 3) == 3);
+  assert(FakeDPX::__viaddmax_u32(2, 3, 7) == 7);
+
 
 
   cout << "PASSED ALL ASSERTIONS FOR INSTRUCTION CHECKING!!\n";
