@@ -1,6 +1,8 @@
 #include <algorithm>
+#include <iostream>
 #include "FakeDPX.hpp"
 
+using std::cout; using std::endl;
 using std::max;
 using std::min;
 
@@ -16,12 +18,12 @@ unsigned int FakeDPX::__vimax3_s16x2(const unsigned int a, const unsigned int b,
 
   short a_high = a >> 16;
   short b_high = b >> 16;
-  short c_high = a >> 16;
+  short c_high = c >> 16;
   ret = max(max(a_high, b_high), c_high) << 16;
 
   short a_low = a & 0xFFFF;
   short b_low = b & 0xFFFF;
-  short c_low = a & 0xFFFF;
+  short c_low = c & 0xFFFF;
 
   return ret | max(max(a_low, b_low), c_low);
 }
@@ -36,12 +38,12 @@ unsigned int FakeDPX::__vimax3_u16x2(const unsigned int a, const unsigned int b,
 
   unsigned short a_high = a >> 16;
   unsigned short b_high = b >> 16;
-  unsigned short c_high = a >> 16;
+  unsigned short c_high = c >> 16;
   ret = max(max(a_high, b_high), c_high) << 16;
 
   unsigned short a_low = a & 0xFFFF;
   unsigned short b_low = b & 0xFFFF;
-  unsigned short c_low = a & 0xFFFF;
+  unsigned short c_low = c & 0xFFFF;
 
   return ret | max(max(a_low, b_low), c_low);
 }
@@ -56,12 +58,12 @@ unsigned int FakeDPX::__vimin3_s16x2(const unsigned int a, const unsigned int b,
 
   short a_high = a >> 16;
   short b_high = b >> 16;
-  short c_high = a >> 16;
+  short c_high = c >> 16;
   ret = min(min(a_high, b_high), c_high) << 16;
 
   short a_low = a & 0xFFFF;
   short b_low = b & 0xFFFF;
-  short c_low = a & 0xFFFF;
+  short c_low = c & 0xFFFF;
 
   return ret | min(min(a_low, b_low), c_low);
 }
@@ -76,12 +78,12 @@ unsigned int FakeDPX::__vimin3_u16x2(const unsigned int a, const unsigned int b,
 
   unsigned short a_high = a >> 16;
   unsigned short b_high = b >> 16;
-  unsigned short c_high = a >> 16;
+  unsigned short c_high = c >> 16;
   ret = min(min(a_high, b_high), c_high) << 16;
 
   unsigned short a_low = a & 0xFFFF;
   unsigned short b_low = b & 0xFFFF;
-  unsigned short c_low = a & 0xFFFF;
+  unsigned short c_low = c & 0xFFFF;
 
   return ret | min(min(a_low, b_low), c_low);
 }
@@ -293,11 +295,11 @@ unsigned int FakeDPX::__viaddmax_s16x2(const unsigned int a, const unsigned int 
   unsigned int ret;
 
   short ab_high = (short)(a >> 16) + (short)(b >> 16);
-  short c_high = a >> 16;
+  short c_high = c >> 16;
   ret = max(ab_high, c_high) << 16;
 
   short ab_low = (short)(a & 0xFFFF) + (short)(b & 0xFFFF);
-  short c_low = a & 0xFFFF;
+  short c_low = c & 0xFFFF;
 
   return ret | max(ab_low, c_low);
 }
@@ -307,11 +309,11 @@ unsigned int FakeDPX::__viaddmax_u16x2(const unsigned int a, const unsigned int 
   unsigned int ret;
 
   unsigned short ab_high = (unsigned short)(a >> 16) + (unsigned short)(b >> 16);
-  unsigned short c_high = a >> 16;
+  unsigned short c_high = c >> 16;
   ret = max(ab_high, c_high) << 16;
 
   unsigned short ab_low = (unsigned short)(a & 0xFFFF) + (unsigned short)(b & 0xFFFF);
-  unsigned short c_low = a & 0xFFFF;
+  unsigned short c_low = c & 0xFFFF;
 
   return ret | max(ab_low, c_low);
 }
@@ -329,11 +331,11 @@ unsigned int FakeDPX::__viaddmin_s16x2(const unsigned int a, const unsigned int 
   unsigned int ret;
 
   short ab_high = (short)(a >> 16) + (short)(b >> 16);
-  short c_high = a >> 16;
+  short c_high = c >> 16;
   ret = min(ab_high, c_high) << 16;
 
   short ab_low = (short)(a & 0xFFFF) + (short)(b & 0xFFFF);
-  short c_low = a & 0xFFFF;
+  short c_low = c & 0xFFFF;
 
   return ret | min(ab_low, c_low);
 }
@@ -343,11 +345,11 @@ unsigned int FakeDPX::__viaddmin_u16x2(const unsigned int a, const unsigned int 
   unsigned int ret;
 
   unsigned short ab_high = (unsigned short)(a >> 16) + (unsigned short)(b >> 16);
-  unsigned short c_high = a >> 16;
+  unsigned short c_high = c >> 16;
   ret = min(ab_high, c_high) << 16;
 
   unsigned short ab_low = (unsigned short)(a & 0xFFFF) + (unsigned short)(b & 0xFFFF);
-  unsigned short c_low = a & 0xFFFF;
+  unsigned short c_low = c & 0xFFFF;
 
   return ret | min(ab_low, c_low);
 }
@@ -364,11 +366,11 @@ unsigned int FakeDPX::__viaddmax_s16x2_relu(const unsigned int a, const unsigned
   unsigned int ret;
 
   short ab_high = (short)(a >> 16) + (short)(b >> 16);
-  short c_high = a >> 16;
+  short c_high = c >> 16;
   ret = max(max(ab_high, c_high), (short)0) << 16;
 
   short ab_low = (short)(a & 0xFFFF) + (short)(b & 0xFFFF);
-  short c_low = a & 0xFFFF;
+  short c_low = c & 0xFFFF;
 
   return ret | max(max(ab_low, c_low), (short)0);
 }
@@ -382,11 +384,11 @@ unsigned int FakeDPX::__viaddmin_s16x2_relu(const unsigned int a, const unsigned
   unsigned int ret;
 
   short ab_high = (short)(a >> 16) + (short)(b >> 16);
-  short c_high = a >> 16;
+  short c_high = c >> 16;
   ret = max(min(ab_high, c_high), (short)0) << 16;
 
   short ab_low = (short)(a & 0xFFFF) + (short)(b & 0xFFFF);
-  short c_low = a & 0xFFFF;
+  short c_low = c & 0xFFFF;
 
   return ret | max(min(ab_low, c_low), (short)0);
 }
