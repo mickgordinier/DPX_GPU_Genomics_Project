@@ -56,6 +56,55 @@ int main() {
   assert(FakeDPX::__vimin_s16x2_relu(0xFFFF00FF, 0xFFFFFF00) == 0);
   assert(FakeDPX::__vimin_s16x2_relu(0xFFFD00FF, 0xFFFF0001) == 0x00000001);
 
+  assert(FakeDPX::__vimax3_s32_relu(1, 2, 3) == 3);
+  assert(FakeDPX::__vimax3_s32_relu(2, 3, 1) == 3);
+  assert(FakeDPX::__vimax3_s32_relu(-5, -10, -30) == 0);
+
+  assert(FakeDPX::__vimax3_s16x2_relu(0, 0x00FF00FF, 0xFF00FF00) == 0x00FF00FF);
+  assert(FakeDPX::__vimax3_s16x2_relu(0, 0xFFFF00FF, 0xFFFFFF00) == 0x000000FF);
+  assert(FakeDPX::__vimax3_s16x2_relu(0xFFFD00FF, 0xFFFE00FF, 0xFFFFFF00) == 0x000000FF);
+
+  assert(FakeDPX::__vimin3_s32_relu(1, 2, 3) == 1);
+  assert(FakeDPX::__vimin3_s32_relu(2, 3, 1) == 1);
+  assert(FakeDPX::__vimin3_s32_relu(-5, -10, -30) == 0);
+
+  assert(FakeDPX::__vimin3_s16x2_relu(0, 0x00FF00FF, 0xFF00FF00) == 0);
+  assert(FakeDPX::__vimin3_s16x2_relu(0, 0xFFFF00FF, 0xFFFFFF00) == 0);
+  assert(FakeDPX::__vimin3_s16x2_relu(0xFFFD00FF, 0xFFFE00FF, 0xFFFF0001) == 0x00000001);
+
+  bool pred_hi, pred_low;
+
+  assert(FakeDPX::__vibmax_s32(1, 2, &pred_hi) == 2 && !pred_hi);
+  assert(FakeDPX::__vibmax_s32(2, 3, &pred_hi) == 3 && !pred_hi);
+  assert(FakeDPX::__vibmax_s32(-10, -30, &pred_hi) == -10 && pred_hi);
+
+  assert(FakeDPX::__vibmax_u32(1, 2, &pred_hi) == 2 && !pred_hi);
+  assert(FakeDPX::__vibmax_u32(3, 2, &pred_hi) == 3 && pred_hi);
+
+  assert(FakeDPX::__vibmin_s32(1, 2, &pred_hi) == 1 && pred_hi);
+  assert(FakeDPX::__vibmin_s32(2, 2, &pred_hi) == 2 && pred_hi);
+  assert(FakeDPX::__vibmin_s32(2, 3, &pred_hi) == 2 && pred_hi);
+  assert(FakeDPX::__vibmin_s32(-10, -30, &pred_hi) == -30 && !pred_hi);
+
+  assert(FakeDPX::__vibmin_u32(1, 2, &pred_hi) == 1 && pred_hi);
+  assert(FakeDPX::__vibmin_u32(3, 2, &pred_hi) == 2 && !pred_hi);
+
+  assert(FakeDPX::__vibmax_s16x2(0x00FF00FF, 0xFF00FF00, &pred_hi, &pred_low) == 0x00FF00FF && pred_hi && pred_low);
+  assert(FakeDPX::__vibmax_s16x2(0xFFFF00FF, 0xFFFFFF00, &pred_hi, &pred_low) == 0xFFFF00FF && pred_hi && pred_low);
+  assert(FakeDPX::__vibmax_s16x2(0xFFFD00FF, 0xFFFE01FF, &pred_hi, &pred_low) == 0xFFFE01FF && !pred_hi && !pred_low);
+
+  assert(FakeDPX::__vibmax_u16x2(0x00FF00FF, 0xFF00FF00, &pred_hi, &pred_low) == 0xFF00FF00 && !pred_hi && !pred_low);
+  assert(FakeDPX::__vibmax_u16x2(0xFFFF00FF, 0xFFFFFF00, &pred_hi, &pred_low) == 0xFFFFFF00 && pred_hi && !pred_low);
+  assert(FakeDPX::__vibmax_u16x2(0xFFFD00FF, 0xFFFE01FF, &pred_hi, &pred_low) == 0xFFFE01FF && !pred_hi && !pred_low);
+
+  assert(FakeDPX::__vibmin_s16x2(0x00FF00FF, 0xFF00FF00, &pred_hi, &pred_low) == 0xFF00FF00 && !pred_hi && !pred_low);
+  assert(FakeDPX::__vibmin_s16x2(0xFFFF00FF, 0xFFFFFF00, &pred_hi, &pred_low) == 0xFFFFFF00 && pred_hi && !pred_low);
+  assert(FakeDPX::__vibmin_s16x2(0xFFFD00FF, 0xFFFE01FF, &pred_hi, &pred_low) == 0xFFFD00FF && pred_hi && pred_low);
+
+  assert(FakeDPX::__vibmin_u16x2(0x00FF00FF, 0xFF00FF00, &pred_hi, &pred_low) == 0x00FF00FF && pred_hi && pred_low);
+  assert(FakeDPX::__vibmin_u16x2(0xFFFF00FF, 0xFFFFFF00, &pred_hi, &pred_low) == 0xFFFF00FF && pred_hi && pred_low);
+  assert(FakeDPX::__vibmin_u16x2(0xFFFD00FF, 0xFFFE01FF, &pred_hi, &pred_low) == 0xFFFD00FF && pred_hi && pred_low);
+
 
 
   cout << "PASSED ALL ASSERTIONS FOR INSTRUCTION CHECKING!!\n";

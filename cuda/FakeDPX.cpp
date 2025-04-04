@@ -182,7 +182,7 @@ unsigned int FakeDPX::__vibmin_u32(const unsigned int a, const unsigned int b, b
   return b;
 }
 
-unsigned int FakeDPX::__vibmax_s16x2(const unsigned int a, const unsigned int b, bool *const pred_hi, bool *const pred_lo) {
+unsigned int FakeDPX::__vibmax_s16x2(const unsigned int a, const unsigned int b, bool *const pred_hi, bool *const pred_low) {
 
   unsigned int ret;
 
@@ -200,16 +200,16 @@ unsigned int FakeDPX::__vibmax_s16x2(const unsigned int a, const unsigned int b,
   short a_low = a & 0xFFFF;
   short b_low = b & 0xFFFF;
 
-  if (a_high >= b_high) {
-    *pred_hi = true;
+  if (a_low >= b_low) {
+    *pred_low = true;
     return ret | (a_low & 0xFFFF);
   }
 
-  *pred_hi = false;
+  *pred_low = false;
   return ret | (b_low & 0xFFFF);
 }
 
-unsigned int FakeDPX::__vibmax_u16x2(const unsigned int a, const unsigned int b, bool *const pred_hi, bool *const pred_lo) {
+unsigned int FakeDPX::__vibmax_u16x2(const unsigned int a, const unsigned int b, bool *const pred_hi, bool *const pred_low) {
 
   unsigned int ret;
 
@@ -227,16 +227,16 @@ unsigned int FakeDPX::__vibmax_u16x2(const unsigned int a, const unsigned int b,
   unsigned short a_low = a & 0xFFFF;
   unsigned short b_low = b & 0xFFFF;
 
-  if (a_high >= b_high) {
-    *pred_hi = true;
+  if (a_low >= b_low) {
+    *pred_low = true;
     return ret | (a_low & 0xFFFF);
   }
 
-  *pred_hi = false;
+  *pred_low = false;
   return ret | (b_low & 0xFFFF);
 }
 
-unsigned int FakeDPX::__vibmin_s16x2(const unsigned int a, const unsigned int b, bool *const pred_hi, bool *const pred_lo) {
+unsigned int FakeDPX::__vibmin_s16x2(const unsigned int a, const unsigned int b, bool *const pred_hi, bool *const pred_low) {
 
   unsigned int ret;
 
@@ -254,16 +254,16 @@ unsigned int FakeDPX::__vibmin_s16x2(const unsigned int a, const unsigned int b,
   short a_low = a & 0xFFFF;
   short b_low = b & 0xFFFF;
 
-  if (a_high <= b_high) {
-    *pred_hi = true;
+  if (a_low <= b_low) {
+    *pred_low =true;
     return ret | (a_low & 0xFFFF);
   }
 
-  *pred_hi = false;
+  *pred_low =false;
   return ret | (b_low & 0xFFFF);
 }
 
-unsigned int FakeDPX::__vibmin_u16x2(const unsigned int a, const unsigned int b, bool *const pred_hi, bool *const pred_lo) {
+unsigned int FakeDPX::__vibmin_u16x2(const unsigned int a, const unsigned int b, bool *const pred_hi, bool *const pred_low) {
 
   unsigned int ret;
 
@@ -281,12 +281,12 @@ unsigned int FakeDPX::__vibmin_u16x2(const unsigned int a, const unsigned int b,
   unsigned short a_low = a & 0xFFFF;
   unsigned short b_low = b & 0xFFFF;
 
-  if (a_high <= b_high) {
-    *pred_hi = true;
+  if (a_low <= b_low) {
+    *pred_low =true;
     return ret | (a_low & 0xFFFF);
   }
 
-  *pred_hi = false;
+  *pred_low =false;
   return ret | (b_low & 0xFFFF);
 }
 
