@@ -1,3 +1,4 @@
+#pragma once
 #include <string>
 
 // Base class from which aligners are derived

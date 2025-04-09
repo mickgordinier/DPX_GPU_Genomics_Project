@@ -107,7 +107,7 @@ void LinearSmithWaterman::score_matrix() {
         } // end for col_idx
     } // end for row_idx
 
-    cout << std::endl;
+    //cout << std::endl;
 }
 
 void LinearSmithWaterman::backtrack(){
@@ -126,18 +126,18 @@ void LinearSmithWaterman::backtrack(){
             if(new_max_score > max_score){
                 backtrack_queue.clear();
                 max_score = new_max_score;
-                DEBUG_PRINT("backtrack", "Clearing backtrack queue");
+                //DEBUG_PRINT("backtrack", "Clearing backtrack queue");
             }
             // Add the new starting cell to the backtracking queue
             if(memo[row_idx][col_idx] == max_score){
                 backtrack_info new_info = {"", "", "", row_idx, col_idx};
                 backtrack_queue.push_back(new_info);
-                DEBUG_PRINT("backtrack", "Adding [" << row_idx << ", " << col_idx << "] to backtrack queue with Val: " << max_score);
+                //DEBUG_PRINT("backtrack", "Adding [" << row_idx << ", " << col_idx << "] to backtrack queue with Val: " << max_score);
             }
         }
     }
 
-    cout << "\n[Backtracking...]\n";
+    cout << "[Backtracking...]\n";
     // Now do the actual backtracking
     while(!backtrack_queue.empty()){
         // Remove a cell from our queue
@@ -187,15 +187,15 @@ void LinearSmithWaterman::backtrack(){
         } // end switch
 
         // Update our accumulated sequences with the current cell's reference + query index
-        DEBUG_PRINT("backtrack", "Reference: " << next_cell.reference_sequence);
-        DEBUG_PRINT("backtrack", "Relation: " << next_cell.pair_relation);
-        DEBUG_PRINT("backtrack", "Query: " << next_cell.query_sequence);
+        //DEBUG_PRINT("backtrack", "Reference: " << next_cell.reference_sequence);
+        //DEBUG_PRINT("backtrack", "Relation: " << next_cell.pair_relation);
+        //DEBUG_PRINT("backtrack", "Query: " << next_cell.query_sequence);
         next_cell.reference_sequence = next_cell.reference_sequence + current_cell.reference_sequence;
         next_cell.pair_relation = next_cell.pair_relation + current_cell.pair_relation;
         next_cell.query_sequence = next_cell.query_sequence + current_cell.query_sequence;
-        DEBUG_PRINT("backtrack", "Cumulative Reference: " << next_cell.reference_sequence);
-        DEBUG_PRINT("backtrack", "Cumulative Relation: " << next_cell.pair_relation);
-        DEBUG_PRINT("backtrack", "Cumulative Query: " << next_cell.query_sequence);
+        //DEBUG_PRINT("backtrack", "Cumulative Reference: " << next_cell.reference_sequence);
+        //DEBUG_PRINT("backtrack", "Cumulative Relation: " << next_cell.pair_relation);
+        //DEBUG_PRINT("backtrack", "Cumulative Query: " << next_cell.query_sequence);
 
         // Check if the we've reached the end of the subsequence, if not, add cell back to queue
         if(memo[next_cell.row_idx][next_cell.col_idx] != 0){backtrack_queue.push_back(next_cell);} 
@@ -203,12 +203,14 @@ void LinearSmithWaterman::backtrack(){
         else {results.push_back(next_cell);}
 
     } // end while
-    cout << std::endl;
+    //cout << std::endl;
 }
 
 void LinearSmithWaterman::align(){
     init_matrix();
-    print_matrix();
+    #ifdef PRINT_MATRIX
+        print_matrix();
+    #endif
     score_matrix();
     backtrack();
     print_results();
@@ -216,11 +218,13 @@ void LinearSmithWaterman::align(){
 
 void LinearSmithWaterman::print_results(){
     cout << "[Scored Matrix]\n";
-    print_matrix();
+    #ifdef PRINT_MATRIX
+        print_matrix();
+    #endif
 
-    cout << "[# Highest Scoring Sequences: " << results.size() << " Score: " << max_score << "]\n\n";
+    cout << "[# Highest Scoring Sequences: " << results.size() << " Score: " << max_score << "]\n";
     cout << "[Sequence Pairing(s)]\n";
-    cout << "\n====================\n";
+    cout << "====================\n";
 
     for(size_t idx = 0; idx < results.size(); idx++){
         cout << "Sequence Pair: " << idx << "\n";
@@ -239,5 +243,5 @@ void LinearSmithWaterman::print_results(){
         cout << "\n====================\n";
     }
 
-    cout << std::endl;
+    //cout << std::endl;
 }

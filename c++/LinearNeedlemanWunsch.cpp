@@ -127,7 +127,7 @@ void LinearNeedlemanWunsch::score_matrix() {
         } // end for col_idx
     } // end for row_idx
 
-    cout << std::endl;
+    //cout << std::endl;
 }
 
 void LinearNeedlemanWunsch::backtrack(){
@@ -188,24 +188,27 @@ void LinearNeedlemanWunsch::backtrack(){
 
         } // end switch
     } // end while
+    #ifdef PRINT_MATRIX
+        print_matrix();
+    #endif
 
-    print_matrix();
-
-    cout << "[Needleman-Wunsch Score: " << memo[memo.size()-1][memo[0].size()-1] << "]\n\n";
+    cout << "[Needleman-Wunsch Score: " << memo[memo.size()-1][memo[0].size()-1] << "]\n";
     cout << "[Sequence Pairing(s)]\n";
-    cout << "\n====================\n";
+    cout << "====================\n";
 
     cout << referenceSequence << std::endl;
     cout << pairRelation << std::endl;
     cout << querySequence << std::endl;
     
-    cout << "\n====================\n";
+    cout << "====================\n";
     cout << std::endl;
 }
 
 void LinearNeedlemanWunsch::align(){
     init_matrix();
-    print_matrix();
+    #ifdef PRINT_MATRIX
+        print_matrix();
+    #endif
     score_matrix();
     backtrack();
 }

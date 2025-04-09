@@ -3,7 +3,8 @@ GCC_FLAGS =
 
 
 CPP_TARGET  = main.cpp
-CPP_SOURCES = $(filter-out $(CPP_TARGET), $(wildcard *.cpp))
+CPP_FILTER = $(CPP_TARGET) testFakeDPX.cpp
+CPP_SOURCES = $(filter-out $(CPP_FILTER), $(wildcard *.cpp))
 CPP_HEADERS = $(wildcard *.h)
 CPP_OBJECTS = $(CPP_SOURCES:.cpp=.o)
 
