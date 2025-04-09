@@ -6,7 +6,171 @@ using std::vector;
 using std::max;
 using std::string;
 
-void LinearNeedlemanWunsch::init_matrix(){
+// Enumerated predecessor directions for backtracking
+enum direction {
+    NONE,             // For initialization purposes
+    MATCH,
+    MISMATCH,
+    QUERY_INSERTION,
+    QUERY_DELETION
+}; 
+
+// Blocks are 1D with a size of the maximum 1024 threads
+#define BLOCK_SIZE 1024
+
+/*
+    THINGS TO CONSIDER FOR OPTIMIZATION
+    1. Complete removal of the scoring matrix altogether (Use of warp shuffling and shared memory)
+    2. Using 16x2 DPX instructions to have a thread work on 2 cells concurrently
+
+
+*/
+
+// Device kernel that each thread will be executing to fill in its respective row
+__global__ void
+needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMatrix,
+                        const string queryString, const string referenceString,
+                        const int queryLength, const int referenceLength,
+                        const int matchWeight, const int mismatchWeight, const int gapWeight)
+{
+    // Obtaining the 1D unique block and thread Id for the specific thread
+    int bid = blockIdx.x;
+    int tid = threadIdx.x;
+
+    int queryInsertionScore;
+    int queryDeletionScore;
+    int matchMismatchScore;
+    int largestScore;
+
+    while () {
+
+        // We will handle the 0th row in Device code
+        int rowIdx = (whileCount * BLOCK_SIZE) + ((bid * BLOCK_SIZE) + tid) + 1;
+
+        int matrixIdx = rowIdx * referenceLength;
+
+        // Each thread initializing the 0th column of their row to 0
+        scoringMatrix[matrixIdx++] = queryDeletionWeight * tid;
+
+        int rowAboveIdx = ((rowIdx-1) * referenceLength) + 1;
+
+        int queryInsertionScore;
+        int queryDeletionScore;
+        int matchMismatchScore;
+        int largestScore;
+
+        const char queryChar = queryString[row_idx - 1]; 
+
+
+        // Need to fill up all the rows
+        // Starting on column idx 1
+        for (int i = 1; i < referenceLength + BLOCK_SIZE - 1; ++i) {
+
+            // On initialization, the lower threads need to wait for the upper thread to begin
+            // if i < tid, we can assume the thread has not yet calculated the above value
+            
+            // At the end, we don't want the thread to do any more computation at the end of its row
+            // Thus, we will have the thread stop updating the matrix once i >= (referenceLength + tid)
+            if ((i >= tid) & (i < (referenceLength + tid))) {
+
+                corner_direction = NONE;
+
+                const char referenceChar = referenceLength[i - tid];
+
+                // If match, add the match score from the corner
+                if (queryChar == referenceChar){
+                    matchMismatchScore = scoringMatrix[rowAboveIdx-1] + matchWeight;
+                    corner_direction = MATCH;
+                }
+                // Otherwise, add the penalty score from the corner
+                else {
+                    matchMismatchScore = scoringMatrix[rowAboveIdx-1] + mismatchWeight;
+                    corner_direction = MISMATCH;
+                }
+                
+                // Calculate potential gap scores
+                queryDeletionScore = scoringMatrix[rowAboveIdx] + gapWeight;
+                queryInsertionScore = scoringMatrix[matrixIdx-1] + gapWeight;
+                
+                largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
+                if (pred) corner_direction = QUERY_DELETION;
+                
+                largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
+                if (pred) corner_direction = QUERY_INSERTION;
+
+                scoringMatrix[matrixIdx] = largestScore;
+                backtrackMatrix[matrixIdx] = corner_direction;
+
+                ++matrixIdx;
+                ++rowAboveIdx;
+            }
+
+            // Need to ensure all threads in the block have written to their respective location before continuing
+            __syncthreads();
+
+        }
+    }
+}
+
+
+int main() {
+
+    // TODO: NEED WAY TO RECEIVE USER INPUT
+    // Need to be able to input reference and query strings
+
+    // Allocate device memory for matrices
+    int *deviceScoringMatrix, deviceBacktrackMatrix;
+    cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int));
+    cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int));
+
+    // Need to launch kernel
+
+    // Need to perform bactracking
+
+
+
+
+
+    // Allocate host memory for matrices
+    // Allow for matrices to come from device -> host
+    int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
+    int *hostBacktrackMatrix = new int[(referenceLength+1) * (queryLength+1)];
+
+    cudaMemcpy(hostScoringMatrix, deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost);
+
+    cudaFree(deviceScoringMatrix);
+    cudaFree(deviceBacktrackMatrix);
+
+
+
+
+
+
+
+
+
+
+    cout << "[Initializing Matrix...]\n";
+    size_t num_rows = query_str.size();
+    size_t num_cols = reference_str.size();
+
+    // Initialize scoring memo
+    // Need the additional 0th row and column for initial gap penalty scores
+    vector<int> temp_memo;
+    temp_memo.resize(num_cols + 1, 0);
+    memo.resize(num_rows + 1, temp_memo);
+
+
+
+}
+
+
+
+
+
+
+void init_matrix(){
     cout << "[Initializing Matrix...]\n";
     size_t num_rows = query_str.size();
     size_t num_cols = reference_str.size();
