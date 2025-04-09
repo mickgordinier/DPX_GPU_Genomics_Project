@@ -23,7 +23,6 @@ enum direction {
     1. Complete removal of the scoring matrix altogether (Use of warp shuffling and shared memory)
     2. Using 16x2 DPX instructions to have a thread work on 2 cells concurrently
 
-
 */
 
 // Device kernel that each thread will be executing to fill in its respective row
@@ -33,34 +32,42 @@ needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMat
                         const int queryLength, const int referenceLength,
                         const int matchWeight, const int mismatchWeight, const int gapWeight)
 {
+
     // Obtaining the 1D unique block and thread Id for the specific thread
-    int bid = blockIdx.x;
     int tid = threadIdx.x;
+
+    // Handling the matrix 0th row
+    if (tid == 0) {
+        for (int i = 0; i < referenceLength+1; ++i) {
+            scoringMatrix[i] = i * gapWeight;
+        }
+    }
 
     int queryInsertionScore;
     int queryDeletionScore;
     int matchMismatchScore;
     int largestScore;
 
-    while () {
+    int whileCount = 0;
 
-        // We will handle the 0th row in Device code
-        int rowIdx = (whileCount * BLOCK_SIZE) + ((bid * BLOCK_SIZE) + tid) + 1;
+    int rowIdx, matrixIdx, rowAboveIdx;
+    char queryChar;
 
-        int matrixIdx = rowIdx * referenceLength;
+    while ((whileCount * BLOCK_SIZE) + 1) {
+
+        rowIdx = (whileCount * BLOCK_SIZE) + tid + 1;
+
+        matrixIdx = rowIdx * referenceLength;
+        rowAboveIdx = ((rowIdx-1) * referenceLength) + 1;
 
         // Each thread initializing the 0th column of their row to 0
-        scoringMatrix[matrixIdx++] = queryDeletionWeight * tid;
+        if (rowIdx < queryLength) {
+            scoringMatrix[matrixIdx++] = queryDeletionWeight * tid;
+            queryChar = queryString[row_idx - 1]; 
+        }
 
-        int rowAboveIdx = ((rowIdx-1) * referenceLength) + 1;
-
-        int queryInsertionScore;
-        int queryDeletionScore;
-        int matchMismatchScore;
-        int largestScore;
-
-        const char queryChar = queryString[row_idx - 1]; 
-
+        // Need to ensure all threads in the block have written to their respective location before continuing
+        __syncthreads();
 
         // Need to fill up all the rows
         // Starting on column idx 1
@@ -71,7 +78,7 @@ needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMat
             
             // At the end, we don't want the thread to do any more computation at the end of its row
             // Thus, we will have the thread stop updating the matrix once i >= (referenceLength + tid)
-            if ((i >= tid) & (i < (referenceLength + tid))) {
+            if ((rowIdx < queryLength) && (i >= tid) && (i < (referenceLength + tid))) {
 
                 corner_direction = NONE;
 
@@ -109,6 +116,9 @@ needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMat
             __syncthreads();
 
         }
+
+        ++whileCount;
+
     }
 }
 
