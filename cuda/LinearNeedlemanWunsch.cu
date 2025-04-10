@@ -1,10 +1,6 @@
-#include "LinearNeedlemanWunsch.h"
-#include "FakeDPX.hpp"
+#include <stdio.h>  // For printf()
+#include <string> // Determining length of string
 
-using std::cout;
-using std::vector;
-using std::max;
-using std::string;
 
 // Enumerated predecessor directions for backtracking
 enum direction {
@@ -28,7 +24,7 @@ enum direction {
 // Device kernel that each thread will be executing to fill in its respective row
 __global__ void
 needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMatrix,
-                        const string queryString, const string referenceString,
+                        const char *queryString, const char *referenceString,
                         const int queryLength, const int referenceLength,
                         const int matchWeight, const int mismatchWeight, const int gapWeight)
 {
@@ -48,10 +44,14 @@ needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMat
     int matchMismatchScore;
     int largestScore;
 
+    direction cornerDirection;
+
     int whileCount = 0;
 
     int rowIdx, matrixIdx, rowAboveIdx;
     char queryChar;
+
+    bool pred;
 
     while ((whileCount * BLOCK_SIZE) + 1) {
 
@@ -62,8 +62,8 @@ needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMat
 
         // Each thread initializing the 0th column of their row to 0
         if (rowIdx < queryLength) {
-            scoringMatrix[matrixIdx++] = queryDeletionWeight * tid;
-            queryChar = queryString[row_idx - 1]; 
+            scoringMatrix[matrixIdx++] = gapWeight * tid;
+            queryChar = queryString[rowIdx - 1]; 
         }
 
         // Need to ensure all threads in the block have written to their respective location before continuing
@@ -80,19 +80,19 @@ needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMat
             // Thus, we will have the thread stop updating the matrix once i >= (referenceLength + tid)
             if ((rowIdx < queryLength) && (i >= tid) && (i < (referenceLength + tid))) {
 
-                corner_direction = NONE;
+                cornerDirection = NONE;
 
-                const char referenceChar = referenceLength[i - tid];
+                const char referenceChar = referenceString[i - tid];
 
                 // If match, add the match score from the corner
                 if (queryChar == referenceChar){
                     matchMismatchScore = scoringMatrix[rowAboveIdx-1] + matchWeight;
-                    corner_direction = MATCH;
+                    cornerDirection = MATCH;
                 }
                 // Otherwise, add the penalty score from the corner
                 else {
                     matchMismatchScore = scoringMatrix[rowAboveIdx-1] + mismatchWeight;
-                    corner_direction = MISMATCH;
+                    cornerDirection = MISMATCH;
                 }
                 
                 // Calculate potential gap scores
@@ -100,13 +100,13 @@ needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMat
                 queryInsertionScore = scoringMatrix[matrixIdx-1] + gapWeight;
                 
                 largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
-                if (pred) corner_direction = QUERY_DELETION;
+                if (pred) cornerDirection = QUERY_DELETION;
                 
                 largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
-                if (pred) corner_direction = QUERY_INSERTION;
+                if (pred) cornerDirection = QUERY_INSERTION;
 
                 scoringMatrix[matrixIdx] = largestScore;
-                backtrackMatrix[matrixIdx] = corner_direction;
+                backtrackMatrix[matrixIdx] = cornerDirection;
 
                 ++matrixIdx;
                 ++rowAboveIdx;
@@ -128,8 +128,11 @@ int main() {
     // TODO: NEED WAY TO RECEIVE USER INPUT
     // Need to be able to input reference and query strings
     // TEMPORARY HARD CODED STRING AND WEIGHT VALUES
-    const string referenceString = "??????";
-    const string queryString = "??????";
+    const char *referenceString = "??????";
+    const char *queryString = "??????";
+
+    int referenceLength = strlen(referenceString);
+    int queryLength = strlen(queryString);
 
     const int matchWeight = 3;
     const int mismatchWeight = -2;
@@ -142,20 +145,19 @@ int main() {
     cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int));
     cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction));
 
-
     // Need to launch kernel
     // Launching a kernel with 1 block with BLOCK_SIZE threads to populate scoring matrix
     needleman_wunsch_forward_pass_kernel<<<1, BLOCK_SIZE>>>(
         deviceScoringMatrix, deviceBacktrackMatrix,
-        queryString, referenceString, queryString.size(), referenceString.size(), 
-        matchWeight, mismatchWeight, gapWeight)
+        queryString, referenceString, queryLength, referenceLength, 
+        matchWeight, mismatchWeight, gapWeight);
 
 
     // Allocate host memory for matrices
     // Allow for matrices to come from device -> host
     // Free up device memory
     int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
-    int *hostBacktrackMatrix = new int[(referenceLength+1) * (queryLength+1)];
+    direction *hostBacktrackMatrix = new direction[(referenceLength+1) * (queryLength+1)];
 
     cudaMemcpy(hostScoringMatrix, deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost);
@@ -165,13 +167,13 @@ int main() {
 
 
     // Perform backtracking on host and print results
-    cout << "[Finding max cells...]\n";
+    // cout << "[Finding max cells...]\n";
 
     // We need to find the max score of the entire matrix
     // + note the cell(s) that have this value
 
-    int currentMemoRow = hostBacktrackMatrix.size()-1;
-    int currentMemoCol = hostBacktrackMatrix[0].size()-1;
+    int currentMemoRow = queryLength;
+    int currentMemoCol = referenceLength;
 
     std::string referenceSequence = "";
     std::string pairRelation = "";
@@ -180,7 +182,7 @@ int main() {
     while ((currentMemoRow != 0) && (currentMemoCol != 0)) {
         
         // Determine the current cell's predecessor
-        switch (hostBacktrackMatrix[currentMemoRow][currentMemoCol]) {
+        switch (hostBacktrackMatrix[(currentMemoRow * (queryLength+1)) + currentMemoCol]) {
             
             case MATCH:
                 referenceSequence = referenceString[currentMemoCol-1] + referenceSequence;
@@ -223,63 +225,63 @@ int main() {
         } // end switch
     } // end while
 
-    print_matrix();
+    // print_matrix();
 
-    cout << "[Needleman-Wunsch Score: " << hostScoringMatrix[hostScoringMatrix.size()-1][hostScoringMatrix[0].size()-1] << "]\n\n";
-    cout << "[Sequence Pairing(s)]\n";
-    cout << "\n====================\n";
+    // cout << "[Needleman-Wunsch Score: " << hostScoringMatrix[hostScoringMatrix.size()-1][hostScoringMatrix[0].size()-1] << "]\n\n";
+    // cout << "[Sequence Pairing(s)]\n";
+    // cout << "\n====================\n";
 
-    cout << referenceSequence << std::endl;
-    cout << pairRelation << std::endl;
-    cout << querySequence << std::endl;
+    // cout << referenceSequence << std::endl;
+    // cout << pairRelation << std::endl;
+    // cout << querySequence << std::endl;
     
-    cout << "\n====================\n";
-    cout << std::endl;
+    // cout << "\n====================\n";
+    // cout << std::endl;
 
 }
 
 
-void LinearNeedlemanWunsch::print_matrix(){
+// void LinearNeedlemanWunsch::print_matrix(){
     
-    size_t num_rows = query_str.size();
-    size_t num_cols = reference_str.size();
+    // size_t num_rows = query_str.size();
+    // size_t num_cols = reference_str.size();
 
     // Print parameters
-    cout << "Reference: " << reference_str << " Size: " << num_cols << "\n";
-    cout << "Query: " << query_str << " Size: " << num_rows << "\n";
+    // cout << "Reference: " << reference_str << " Size: " << num_cols << "\n";
+    // cout << "Query: " << query_str << " Size: " << num_rows << "\n";
 
-    cout << "Matrix Dim: [ " << num_rows + 1 << " x " << num_cols + 1 << " ]\n";
+    // cout << "Matrix Dim: [ " << num_rows + 1 << " x " << num_cols + 1 << " ]\n";
 
     // Set the spacing for each element of the matrix
-    int min_width = 2;
+    // int min_width = 2;
 
     // Print out reference str
-    cout << "    " << std::setw(min_width) << " " << " ";
-    for(size_t i = 0; i < reference_str.size(); i++){
-        cout << "  " << std::setw(min_width) << reference_str[i] << " ";
-    }
-    cout << "\n";
+    // cout << "    " << std::setw(min_width) << " " << " ";
+    // for(size_t i = 0; i < reference_str.size(); i++){
+    //     cout << "  " << std::setw(min_width) << reference_str[i] << " ";
+    // }
+    // cout << "\n";
 
     // Print rest of matrix
-    for(size_t i = 0; i < memo.size(); i++){
-        if(i == 0){
-            cout << "  ";
-        }
-        else {
-            cout << query_str[i-1] << " ";
-        }
-        cout << "[";
-        for(size_t j = 0; j < memo[i].size(); j++){
-            if(j != memo[i].size() - 1){
-                cout << " " << std::setw(min_width) << memo[i][j] << ", ";
-            }
-            else {
-                cout << " " << std::setw(min_width) << memo[i][j];
-            }
-        } //end for
-        cout << "],\n";
-    } //end for
+    // for(size_t i = 0; i < memo.size(); i++){
+    //     if(i == 0){
+    //         cout << "  ";
+    //     }
+    //     else {
+    //         cout << query_str[i-1] << " ";
+    //     }
+    //     cout << "[";
+    //     for(size_t j = 0; j < memo[i].size(); j++){
+    //         if(j != memo[i].size() - 1){
+    //             cout << " " << std::setw(min_width) << memo[i][j] << ", ";
+    //         }
+    //         else {
+    //             cout << " " << std::setw(min_width) << memo[i][j];
+    //         }
+    //     } //end for
+    //     cout << "],\n";
+    // } //end for
 
-    cout << std::endl;
+    // cout << std::endl;
 
-}
+// }
