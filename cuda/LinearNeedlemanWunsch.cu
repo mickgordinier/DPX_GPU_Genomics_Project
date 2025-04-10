@@ -125,6 +125,17 @@ needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMat
 
 int main() {
 
+    cout << "[Cuda Details]" << endl;
+    int deviceCount;
+    cudaGetDeviceCount(&deviceCount);
+    printf("Device count: %d\n", deviceCount);
+    int device = 0;
+    cudaDeviceProp deviceProp;
+    cudaGetDeviceProperties(&deviceProp, device);
+    printf("Device %d has compute capability %d.%d.\n",
+           device, deviceProp.major, deviceProp.minor);
+    printf("Concurrent kernels?: %d\n\n", deviceProp.concurrentKernels);
+
     // TODO: NEED WAY TO RECEIVE USER INPUT
     // Need to be able to input reference and query strings
     // TEMPORARY HARD CODED STRING AND WEIGHT VALUES
@@ -137,6 +148,10 @@ int main() {
     const int matchWeight = 3;
     const int mismatchWeight = -2;
     const int gapWeight = -1;
+
+    pritnf("Reference String: %s (Length: %d)\n", referenceString, referenceLength);
+    pritnf("Query String: %s (Length: %d)\n", queryString, referenceLength);
+    printf("(MATCH WEIGHT, MISMATCH WEIGHT, GAP WEIGHT): ");
 
 
     // Allocate device memory for matrices
