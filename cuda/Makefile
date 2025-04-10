@@ -2,27 +2,27 @@ NVCC = nvcc
 NVCC_FLAGS = 
 
 
-CU_TARGET  = main.cu
-CU_FILTER = $(CU_TARGET) testFakeDPX.cu
 CU_SOURCES = $(filter-out $(CU_FILTER), $(wildcard *.cu))
 CU_HEADERS = $(wildcard *.h)
-CU_OBJECTS = $(CU_SOURCES:.cu=.o)
+CU_EXE = $(CU_SOURCES:.cu=) LNW
 
 print_vars:
-	@echo "Target $(CU_TARGET)"
 	@echo "Source Files $(CU_SOURCES)"
 	@echo "Header Files $(CU_HEADERS)"
-	@echo "Object Files $(CU_OBJECTS)"
+	@echo "Object Files $(CU_EXE)"
 
 test: test.cu
 	$(NVCC) -o test test.cu
 
+LNW: LinearNeedlemanWunsch.cu
+	$(NVCC) $(NVCC_FLAGS) $< -o $@
+
 %: %.cu
-	$(NVCC) $(NVCC_FLAGS) $(CU_HEADERS) $% -o $@
+	$(NVCC) $(NVCC_FLAGS) $< -o $@
 
 %.out: %
 	./$< > $@
 	
 clean:
-	rm -f main $(CPP_OBJECTS)
+	rm -f $(CU_EXE)
 
