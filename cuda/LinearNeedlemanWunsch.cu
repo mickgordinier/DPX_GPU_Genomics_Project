@@ -1,15 +1,7 @@
 #include <stdio.h>  // For printf()
-#include <string> // Determining length of string
-
-
-// Enumerated predecessor directions for backtracking
-enum direction {
-    NONE,             // For initialization purposes
-    MATCH,
-    MISMATCH,
-    QUERY_INSERTION,
-    QUERY_DELETION
-}; 
+#include <cstring> // Determining length of string
+#include "../c++/parseInput.h"
+#include "../c++/backtrack.h"
 
 // Blocks are 1D with a size of the maximum 1024 threads
 #define BLOCK_SIZE 1024
@@ -21,6 +13,33 @@ enum direction {
 
 */
 
+__global__ void test_kernel(int *scoringMatrix, direction *backtrackMatrix,
+                        const char *queryString, const char *referenceString,
+                        const int queryLength, const int referenceLength,
+                        const int matchWeight, const int mismatchWeight, const int gapWeight){
+    int tid = threadIdx.x;
+
+    int numRows = queryLength + 1;
+    int numCols = referenceLength + 1;
+    // Initialize the matrix
+    if (tid < numRows*numCols) {
+        scoringMatrix[tid] = tid;
+    }
+    __syncthreads();
+
+    // Initialize the top row
+    if (tid < numCols) {
+        scoringMatrix[tid] = gapWeight*tid;
+    }
+    __syncthreads();
+
+    // Initialize the left col
+    if (tid < numRows) {
+        scoringMatrix[tid*numCols] = gapWeight*tid;
+    }
+    __syncthreads();
+}
+
 // Device kernel that each thread will be executing to fill in its respective row
 __global__ void
 needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMatrix,
@@ -31,13 +50,20 @@ needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMat
 
     // Obtaining the 1D unique block and thread Id for the specific thread
     int tid = threadIdx.x;
+    int numRows = queryLength + 1;
+    int numCols = referenceLength + 1;
 
-    // Handling the matrix 0th row
-    if (tid == 0) {
-        for (int i = 0; i < referenceLength+1; ++i) {
-            scoringMatrix[i] = i * gapWeight;
-        }
+    // Initialize the top row
+    if (tid < numCols) {
+        scoringMatrix[tid] = gapWeight*tid;
     }
+    __syncthreads();
+
+    // Initialize the left col
+    if (tid < numRows) {
+        scoringMatrix[tid*numCols] = gapWeight*tid;
+    }
+    __syncthreads();
 
     int queryInsertionScore;
     int queryDeletionScore;
@@ -123,7 +149,7 @@ needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMat
 }
 
 
-int main() {
+int main(int argc, char *argv[]) {
 
     printf("[Cuda Details]\n");
     int deviceCount;
@@ -136,36 +162,72 @@ int main() {
            device, deviceProp.major, deviceProp.minor);
     printf("Concurrent kernels?: %d\n\n", deviceProp.concurrentKernels);
 
+    // Check that YOU use it correctly
+    if (argc < 2) {
+		fprintf(stderr, "usage: main -pairs <InSeqFile> -match <matchWeight> -mismatch <mismatchWeight> -gap <gapWeight> \n");
+		exit(EXIT_FAILURE);
+    }
+	
+    // Get filename from args
+    char *pairFileName;
+    int matchWeight     = 3;
+    int mismatchWeight  = -1;
+    int gapWeight       = -2;
+    if(strcmp(argv[1], "-pairs") == 0) {
+        pairFileName = argv[2];
+    }
+    if(argc > 3 && strcmp(argv[3], "-match") == 0) {
+        matchWeight = atoi(argv[4]);
+    }
+    if(argc > 5 && strcmp(argv[5], "-mismatch") == 0) {
+        mismatchWeight = atoi(argv[6]);
+    }
+    if(argc > 7 && strcmp(argv[7], "-gap") == 0) {
+        gapWeight = atoi(argv[8]);
+    }
 
-    // TODO: NEED WAY TO RECEIVE USER INPUT
-    // Need to be able to input reference and query strings
-    // TEMPORARY HARD CODED STRING AND WEIGHT VALUES
-    printf("[Receiving User Input for Sequences and Weights]\n");
-    const char *referenceString = "??????";
-    const char *queryString = "??????";
+    // Parse input file
+    printf("Parsing input file: %s\n", pairFileName);
+    size_t numPairs;
+    seqPair* sequenceIdxs;
+    char* sequences;
+    numPairs = parseInput(pairFileName, sequenceIdxs, sequences);
+
+    // char *referenceString = &sequences[sequenceIdxs[0].referenceIdx];
+    // char *queryString = &sequences[sequenceIdxs[0].queryIdx];
+    char *referenceString = "GTCATGCAATAACG";
+    char *queryString = "ATGCAATA";
 
     int referenceLength = strlen(referenceString);
     int queryLength = strlen(queryString);
 
-    const int matchWeight = 3;
-    const int mismatchWeight = -2;
-    const int gapWeight = -1;
-
     printf("Reference String: %s (Length: %d)\n", referenceString, referenceLength);
-    printf("Query String: %s (Length: %d)\n", queryString, referenceLength);
+    printf("Query String: %s (Length: %d)\n", queryString, queryLength);
     printf("(MATCH WEIGHT, MISMATCH WEIGHT, GAP WEIGHT): (%d, %d, %d)\n\n", matchWeight, mismatchWeight, gapWeight);
 
     // Allocate device memory for matrices
-    printf("[Allocating CUDA Memory]\n")
+    printf("[Allocating CUDA Memory]\n");
     int *deviceScoringMatrix;
     direction *deviceBacktrackMatrix;
-    
+
     if (cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)) != cudaSuccess) {
         printf("FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n");
         exit(1);
     }
 
     if (cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction)) != cudaSuccess) {
+        printf("FAILED TO ALLOCATE MEMORY TO BACKTRAK MATRIX\n");
+        exit(1);
+    }
+
+    int *testDeviceScoringMatrix;
+    direction *testDeviceBacktrackMatrix;
+    if (cudaMalloc(&testDeviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)) != cudaSuccess) {
+        printf("FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n");
+        exit(1);
+    }
+
+    if (cudaMalloc(&testDeviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction)) != cudaSuccess) {
         printf("FAILED TO ALLOCATE MEMORY TO BACKTRAK MATRIX\n");
         exit(1);
     }
@@ -177,7 +239,10 @@ int main() {
         deviceScoringMatrix, deviceBacktrackMatrix,
         queryString, referenceString, queryLength, referenceLength, 
         matchWeight, mismatchWeight, gapWeight);
-
+    test_kernel<<<1, BLOCK_SIZE>>>(
+        testDeviceScoringMatrix, testDeviceBacktrackMatrix,
+        queryString, referenceString, queryLength, referenceLength, 
+        matchWeight, mismatchWeight, gapWeight);
 
     // Allocate host memory for matrices
     // Allow for matrices to come from device -> host
@@ -185,129 +250,39 @@ int main() {
     int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
     direction *hostBacktrackMatrix = new direction[(referenceLength+1) * (queryLength+1)];
 
+    // Wait for kernel to finish
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        printf("CUDA kernel error: %s\n", cudaGetErrorString(err));
+    }
+
     cudaMemcpy(hostScoringMatrix, deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost);
+
+    int *testHostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
+    direction *testHostBacktrackMatrix = new direction[(referenceLength+1) * (queryLength+1)];
+    cudaMemcpy(testHostScoringMatrix, testDeviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(testHostBacktrackMatrix, testDeviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost);
 
     cudaFree(deviceScoringMatrix);
     cudaFree(deviceBacktrackMatrix);
 
+    cudaFree(testDeviceScoringMatrix);
+    cudaFree(testDeviceBacktrackMatrix);
+
+    // Print Matrix
+    printf("Test Scored Matrix\n");
+    printMatrix(testHostScoringMatrix, referenceLength + 1, queryLength + 1);
+    printf("Scored Matrix\n");
+    printMatrix(hostScoringMatrix, referenceLength + 1, queryLength + 1);
 
     // Perform backtracking on host and print results
-    // cout << "[Finding max cells...]\n";
+    printf("0 | %d", hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
+    backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
 
-    // We need to find the max score of the entire matrix
-    // + note the cell(s) that have this value
-
-    int currentMemoRow = queryLength;
-    int currentMemoCol = referenceLength;
-
-    std::string referenceSequence = "";
-    std::string pairRelation = "";
-    std::string querySequence = "";
-
-    while ((currentMemoRow != 0) && (currentMemoCol != 0)) {
-        
-        // Determine the current cell's predecessor
-        switch (hostBacktrackMatrix[(currentMemoRow * (queryLength+1)) + currentMemoCol]) {
-            
-            case MATCH:
-                referenceSequence = referenceString[currentMemoCol-1] + referenceSequence;
-                pairRelation = "*" + pairRelation;
-                querySequence = queryString[currentMemoRow-1] + querySequence;
-                --currentMemoRow;
-                --currentMemoCol;
-                break;
-            // end if match
-
-            case MISMATCH: 
-                referenceSequence = referenceString[currentMemoCol-1] + referenceSequence;
-                pairRelation = "|" + pairRelation;
-                querySequence = queryString[currentMemoRow-1] + querySequence;
-                --currentMemoRow;
-                --currentMemoCol;
-                break;
-            // end if mismatch
-            
-            case QUERY_DELETION:
-                referenceSequence = "_" + referenceSequence;
-                pairRelation = " " + pairRelation;
-                querySequence = queryString[currentMemoRow-1] + querySequence;
-                --currentMemoRow;
-                break;
-            // end if query deletion
-            
-            case QUERY_INSERTION:
-                referenceSequence = referenceString[currentMemoCol-1] + referenceSequence;
-                pairRelation = " " + pairRelation;
-                querySequence = "_" + querySequence;
-                --currentMemoCol;
-                break;
-            // end if query insertion
-            
-            default:
-                exit(1);
-            // end if upper gap
-
-        } // end switch
-    } // end while
-
-    // print_matrix();
-
-    // cout << "[Needleman-Wunsch Score: " << hostScoringMatrix[hostScoringMatrix.size()-1][hostScoringMatrix[0].size()-1] << "]\n\n";
-    // cout << "[Sequence Pairing(s)]\n";
-    // cout << "\n====================\n";
-
-    // cout << referenceSequence << std::endl;
-    // cout << pairRelation << std::endl;
-    // cout << querySequence << std::endl;
-    
-    // cout << "\n====================\n";
-    // cout << std::endl;
-
+    // Free data arrays
+    printf("Cleaning up\n");
+    cleanupParsedFile(sequenceIdxs, sequences);
+    delete[] hostScoringMatrix;
+    delete[] hostBacktrackMatrix;
 }
-
-
-// void LinearNeedlemanWunsch::print_matrix(){
-    
-    // size_t num_rows = query_str.size();
-    // size_t num_cols = reference_str.size();
-
-    // Print parameters
-    // cout << "Reference: " << reference_str << " Size: " << num_cols << "\n";
-    // cout << "Query: " << query_str << " Size: " << num_rows << "\n";
-
-    // cout << "Matrix Dim: [ " << num_rows + 1 << " x " << num_cols + 1 << " ]\n";
-
-    // Set the spacing for each element of the matrix
-    // int min_width = 2;
-
-    // Print out reference str
-    // cout << "    " << std::setw(min_width) << " " << " ";
-    // for(size_t i = 0; i < reference_str.size(); i++){
-    //     cout << "  " << std::setw(min_width) << reference_str[i] << " ";
-    // }
-    // cout << "\n";
-
-    // Print rest of matrix
-    // for(size_t i = 0; i < memo.size(); i++){
-    //     if(i == 0){
-    //         cout << "  ";
-    //     }
-    //     else {
-    //         cout << query_str[i-1] << " ";
-    //     }
-    //     cout << "[";
-    //     for(size_t j = 0; j < memo[i].size(); j++){
-    //         if(j != memo[i].size() - 1){
-    //             cout << " " << std::setw(min_width) << memo[i][j] << ", ";
-    //         }
-    //         else {
-    //             cout << " " << std::setw(min_width) << memo[i][j];
-    //         }
-    //     } //end for
-    //     cout << "],\n";
-    // } //end for
-
-    // cout << std::endl;
-
-// }

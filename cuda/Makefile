@@ -1,7 +1,9 @@
 NVCC = nvcc
 NVCC_FLAGS = 
 
-
+CPP_SOURCES = 	../c++/backtrack.cpp \
+				../c++/parseInput.cpp
+				
 CU_SOURCES = $(filter-out $(CU_FILTER), $(wildcard *.cu))
 CU_HEADERS = $(wildcard *.h)
 CU_EXE = $(CU_SOURCES:.cu=) LNW
@@ -14,11 +16,11 @@ print_vars:
 test: test.cu
 	$(NVCC) -o test test.cu
 
-LNW: LinearNeedlemanWunsch.cu
-	$(NVCC) $(NVCC_FLAGS) $< -o $@
+LNW: LinearNeedlemanWunsch.cu $(CPP_SOURCES)
+	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
 %: %.cu
-	$(NVCC) $(NVCC_FLAGS) $< -o $@
+	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
 %.out: %
 	./$< > $@
