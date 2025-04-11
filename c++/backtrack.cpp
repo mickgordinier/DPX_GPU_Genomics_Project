@@ -9,7 +9,18 @@ void printMatrix(const int *memo, const int cols, const int rows){
     }
 }
 
+void printBacktrackMatrix(const direction *memo, const int cols, const int rows){
+    for(size_t row = 0; row < rows; row++){
+        for(size_t col = 0; col < cols; col++){
+            printf(" %4d ", memo[row*(cols) + col]);
+        }
+        printf("\n");
+    }
+}
+
 void backtrackNW(const direction *backtrackMemo, const char *referenceString, const int referenceLength, const char *queryString,  const int queryLength){
+    int numRows = queryLength + 1;
+    int numCols = referenceLength + 1;
     int currentMemoRow = queryLength;
     int currentMemoCol = referenceLength;
 
@@ -20,7 +31,7 @@ void backtrackNW(const direction *backtrackMemo, const char *referenceString, co
     while ((currentMemoRow != 0) && (currentMemoCol != 0)) {
         
         // Determine the current cell's predecessor
-        switch (backtrackMemo[(currentMemoRow * (queryLength+1)) + currentMemoCol]) {
+        switch (backtrackMemo[(currentMemoRow * numCols) + currentMemoCol]) {
             
             case MATCH:
                 referenceSequence = referenceString[currentMemoCol-1] + referenceSequence;
@@ -63,8 +74,8 @@ void backtrackNW(const direction *backtrackMemo, const char *referenceString, co
         } // end switch
     } // end while
 
-    printf("%s\n", referenceSequence);
-    printf("%s\n", pairRelation);
-    printf("%s\n", querySequence);
+    printf("%s\n", referenceSequence.c_str());
+    printf("%s\n", pairRelation.c_str());
+    printf("%s\n", querySequence.c_str());
     
 }
