@@ -16,13 +16,13 @@ using std::strcmp;
 
 int main(int argc, char *argv[]){
 
-    // Parse pair dataset
+    // Check that YOU use it correctly
     if (argc < 2) {
 		fprintf(stderr, "usage: main -pairs <InSeqFile>\n");
 		exit(EXIT_FAILURE);
 	}
 	
-    // Get filename
+    // Get filename from args
     string pairFileName;
 	if(strcmp(argv[1], "-pairs") == 0) {
 		pairFileName = argv[2];
@@ -39,7 +39,7 @@ int main(int argc, char *argv[]){
     // std::cout << "Printing sequence info" << std::endl;
     // printParsedFile(numPairs, sequenceIdxs, sequences);
 
-
+    // Score some matrices babyyyyyyyyyyy
     std::cout << "Pair # | Score\n";
     // LinearSmithWaterman LSW("GAGTACTCAACACCAACATTGATGGGCAATGGAAAATAGCCTTCGCCATCACACCATTAAGGGTGA", "GAATACTCAACAGCAACATCAACGGGCAGCAGAAAATAGGCTTTGCCATCACTGCCATTAAGGATGTGGG", 3, -1, -2);
     for(int i = 0; i < numPairs/1000; i++){
@@ -55,6 +55,7 @@ int main(int argc, char *argv[]){
         LNW.align();
     }
 
+    // Free data arrays
     std::cout << "Cleanup data arrays" << std::endl;
     cleanupParsedFile(sequenceIdxs, sequences);
 }
