@@ -1,7 +1,7 @@
 GCC = g++
 GCC_FLAGS = 
 
-
+INPUT_SMALL = ../input-datasets/bsw/small/bandedSWA_SRR7733443_100k_input.txt
 CPP_TARGET  = main.cpp
 CPP_FILTER = $(CPP_TARGET) testFakeDPX.cpp
 CPP_SOURCES = $(filter-out $(CPP_FILTER), $(wildcard *.cpp))
@@ -17,9 +17,9 @@ print_vars:
 main: $(CPP_TARGET) $(CPP_OBJECTS) $(CPP_HEADERS)
 	$(GCC) $(GCC_FLAGS) main.cpp $(CPP_OBJECTS) -o $@
 
-%.out: %
-	./$< > $@
+align: main
+	./$< -pairs $(INPUT_SMALL) > $@.out
 	
 clean:
-	rm -f main $(CPP_OBJECTS)
+	rm -f main $(CPP_OBJECTS) *.out
 

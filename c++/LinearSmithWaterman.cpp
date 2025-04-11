@@ -6,7 +6,9 @@ using std::max;
 using std::string;
 
 void LinearSmithWaterman::init_matrix(){
-    cout << "[Initializing Matrix...]\n";
+    #ifdef PRINT_EXTRA
+        cout << "[Initializing Matrix...]\n";
+    #endif
     size_t num_rows = query_str.size();
     size_t num_cols = reference_str.size();
 
@@ -66,8 +68,9 @@ void LinearSmithWaterman::print_matrix(){
 }
 
 void LinearSmithWaterman::score_matrix() {
-    cout << "[Scoring...]\n";
-
+    #ifdef PRINT_EXTRA
+        cout << "[Scoring...]\n";
+    #endif
     // Score the smith waterman matrix, keeping track of where a cell got its value
     for(size_t row_idx = 1; row_idx < memo.size(); row_idx++) {
         for(size_t col_idx = 1; col_idx < memo[0].size(); col_idx++) {
@@ -111,33 +114,51 @@ void LinearSmithWaterman::score_matrix() {
 }
 
 void LinearSmithWaterman::backtrack(){
-    cout << "[Finding max cells...]\n";
-
+    #ifdef PRINT_EXTRA
+        cout << "[Finding max cells...]\n";
+    #endif
     // We need to find the max score of the entire matrix
     // + note the cell(s) that have this value
 
     // Whenever we find a new max value we need to clear our backtracking queue
     // --> As a result, start from the bottom right so we hopefully 
     // end up clearing the queue fewer times
-    for(size_t row_idx = memo.size() - 1; row_idx > 0; row_idx--) {
-        for(size_t col_idx = memo[0].size() - 1; col_idx > 0; col_idx--) {
-            int new_max_score = max(max_score, memo[row_idx][col_idx]);
-            // Clear the queue if we have a new max val + store it
-            if(new_max_score > max_score){
-                backtrack_queue.clear();
-                max_score = new_max_score;
-                //DEBUG_PRINT("backtrack", "Clearing backtrack queue");
-            }
-            // Add the new starting cell to the backtracking queue
-            if(memo[row_idx][col_idx] == max_score){
-                backtrack_info new_info = {"", "", "", row_idx, col_idx};
-                backtrack_queue.push_back(new_info);
-                //DEBUG_PRINT("backtrack", "Adding [" << row_idx << ", " << col_idx << "] to backtrack queue with Val: " << max_score);
+    #ifdef BACKTRACK_ALL
+        for(size_t row_idx = memo.size() - 1; row_idx > 0; row_idx--) {
+            for(size_t col_idx = memo[0].size() - 1; col_idx > 0; col_idx--) {
+                int new_max_score = max(max_score, memo[row_idx][col_idx]);
+                // Clear the queue if we have a new max val + store it
+                if(new_max_score > max_score){
+                    backtrack_queue.clear();
+                    max_score = new_max_score;
+                    //DEBUG_PRINT("backtrack", "Clearing backtrack queue");
+                }
+                // Add the new starting cell to the backtracking queue
+                if(memo[row_idx][col_idx] == max_score){
+                    backtrack_info new_info = {"", "", "", row_idx, col_idx};
+                    backtrack_queue.push_back(new_info);
+                    //DEBUG_PRINT("backtrack", "Adding [" << row_idx << ", " << col_idx << "] to backtrack queue with Val: " << max_score);
+                }
             }
         }
-    }
-
-    cout << "[Backtracking...]\n";
+    #else
+        for(size_t row_idx = memo.size() - 1; row_idx > 0; row_idx--) {
+            for(size_t col_idx = memo[0].size() - 1; col_idx > 0; col_idx--) {
+                int new_max_score = max(max_score, memo[row_idx][col_idx]);
+                // Clear the queue if we have a new max val + store it
+                if(new_max_score > max_score){
+                    backtrack_queue.clear();
+                    max_score = new_max_score;
+                    backtrack_info new_info = {"", "", "", row_idx, col_idx};
+                    backtrack_queue.push_back(new_info);
+                    //DEBUG_PRINT("backtrack", "Clearing backtrack queue");
+                }
+            }
+        }
+    #endif
+    #ifdef PRINT_EXTRA
+        cout << "[Backtracking...]\n";
+    #endif
     // Now do the actual backtracking
     while(!backtrack_queue.empty()){
         // Remove a cell from our queue
@@ -217,17 +238,22 @@ void LinearSmithWaterman::align(){
 }
 
 void LinearSmithWaterman::print_results(){
-    cout << "[Scored Matrix]\n";
     #ifdef PRINT_MATRIX
+        cout << "[Scored Matrix]\n";
         print_matrix();
     #endif
-
-    cout << "[# Highest Scoring Sequences: " << results.size() << " Score: " << max_score << "]\n";
-    cout << "[Sequence Pairing(s)]\n";
-    cout << "====================\n";
+    #ifdef PRINT_EXTRA
+        cout << "[# Highest Scoring Sequences: " << results.size() << " Score: " << max_score << "]\n";
+        cout << "[Sequence Pairing(s)]\n";
+        cout << "====================\n";
+    #else
+        cout << max_score << "\n";
+    #endif
 
     for(size_t idx = 0; idx < results.size(); idx++){
-        cout << "Sequence Pair: " << idx << "\n";
+        #ifdef PRINT_EXTRA
+            cout << "Sequence Pair: " << idx << "\n";
+        #endif
         backtrack_info backtrack_record = results[idx];
         for(size_t base = 0; base < backtrack_record.query_sequence.size(); base++){
             cout << backtrack_record.query_sequence[base];
@@ -240,7 +266,11 @@ void LinearSmithWaterman::print_results(){
         for(size_t base = 0; base < backtrack_record.reference_sequence.size(); base++){
             cout << backtrack_record.reference_sequence[base];
         }
-        cout << "\n====================\n";
+        #ifdef PRINT_EXTRA
+            cout << "\n====================\n";
+        #else
+            cout << "\n";
+        #endif
     }
 
     //cout << std::endl;

@@ -5,6 +5,8 @@
 #include "SequenceAligner.h"
 #include "debug.h"
 
+//#define BACKTRACK_ALL
+
 class LinearSmithWaterman: public SequenceAligner{
     private:
     // [Used for scoring]

@@ -7,7 +7,9 @@ using std::max;
 using std::string;
 
 void LinearNeedlemanWunsch::init_matrix(){
-    cout << "[Initializing Matrix...]\n";
+    #ifdef PRINT_EXTRA
+        cout << "[Initializing Matrix...]\n";
+    #endif
     size_t num_rows = query_str.size();
     size_t num_cols = reference_str.size();
 
@@ -85,7 +87,9 @@ void LinearNeedlemanWunsch::print_matrix(){
 }
 
 void LinearNeedlemanWunsch::score_matrix() {
-    cout << "[Scoring...]\n";
+    #ifdef PRINT_EXTRA
+        cout << "[Scoring...]\n";
+    #endif
 
     bool pred;
 
@@ -131,8 +135,9 @@ void LinearNeedlemanWunsch::score_matrix() {
 }
 
 void LinearNeedlemanWunsch::backtrack(){
-    cout << "[Finding max cells...]\n";
-
+    #ifdef PRINT_EXTRA
+        cout << "[Finding max cells...]\n";
+    #endif
     // We need to find the max score of the entire matrix
     // + note the cell(s) that have this value
 
@@ -191,17 +196,22 @@ void LinearNeedlemanWunsch::backtrack(){
     #ifdef PRINT_MATRIX
         print_matrix();
     #endif
-
-    cout << "[Needleman-Wunsch Score: " << memo[memo.size()-1][memo[0].size()-1] << "]\n";
-    cout << "[Sequence Pairing(s)]\n";
-    cout << "====================\n";
+    #ifdef PRINT_EXTRA
+        cout << "[Needleman-Wunsch Score: " << memo[memo.size()-1][memo[0].size()-1] << "]\n";
+        cout << "[Sequence Pairing(s)]\n";
+        cout << "====================\n";
+    #else
+        cout << memo[memo.size()-1][memo[0].size()-1] << "\n";
+    #endif
 
     cout << referenceSequence << std::endl;
     cout << pairRelation << std::endl;
     cout << querySequence << std::endl;
     
-    cout << "====================\n";
-    cout << std::endl;
+    #ifdef PRINT_EXTRA
+        cout << "====================\n";
+        cout << std::endl;
+    #endif
 }
 
 void LinearNeedlemanWunsch::align(){
