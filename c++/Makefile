@@ -18,7 +18,7 @@ main: $(CPP_TARGET) $(CPP_OBJECTS) $(CPP_HEADERS)
 	$(GCC) $(GCC_FLAGS) main.cpp $(CPP_OBJECTS) -o $@
 
 align: main
-	./$< -pairs $(INPUT_SMALL) > $@.out
+	./$< -pairs $(INPUT_SMALL) -match 3 -mismatch -1 -gap -2 > $@.out
 	
 clean:
 	rm -f main $(CPP_OBJECTS) *.out
