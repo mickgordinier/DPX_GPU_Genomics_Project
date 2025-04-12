@@ -4,6 +4,11 @@
 
 #define PRINT_PARSED_PAIRS
 
+struct inputInfo{
+    size_t numPairs;
+    size_t numBytes;
+};
+
 struct seqPair {
     size_t scoreSeedIdx;
     size_t scoreSeedSize;
@@ -13,7 +18,7 @@ struct seqPair {
     size_t querySize;
 };
 
-size_t parseInput(const char* pairFileName, seqPair* &sequence_indices, char* &sequences);
+inputInfo parseInput(const char* pairFileName, seqPair* &sequence_indices, char* &sequences);
 
 void printParsedFile(const size_t numPairs, const seqPair* sequence_indices, const char* sequences);
 

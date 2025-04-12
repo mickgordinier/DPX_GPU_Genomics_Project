@@ -4,7 +4,7 @@
 #define PARSE_REFERENCE 1
 #define PARSE_QUERY 2
 
-size_t parseInput(const char* pairFileName, seqPair* &sequenceIdxs, char* &sequences){
+inputInfo parseInput(const char* pairFileName, seqPair* &sequenceIdxs, char* &sequences){
     // Open file
     FILE *pairFile = fopen(pairFileName, "r");	
     if (pairFile == NULL) {
@@ -89,7 +89,11 @@ size_t parseInput(const char* pairFileName, seqPair* &sequenceIdxs, char* &seque
         }
     }
 
-    return numPairs;
+    inputInfo retVal;
+    retVal.numPairs = numPairs;
+    retVal.numBytes = numBytes;
+    
+    return retVal;
 }
 
 void printParsedFile(const size_t numPairs, const seqPair* sequenceIdxs, const char* sequences){

@@ -33,27 +33,27 @@ int main(int argc, char *argv[]){
 
     // Parse input file
     printf("Parsing input file: %s\n", pairFileName);
-    size_t numPairs;
+    inputInfo fileInfo;
     seqPair* sequenceIdxs;
     char* sequences;
-    numPairs = parseInput(pairFileName, sequenceIdxs, sequences);
+    fileInfo = parseInput(pairFileName, sequenceIdxs, sequences);
 
     // Print out the first byte of each section to make sure I'm not crazy
     // std::cout << "Printing sequence info" << std::endl;
-    // printParsedFile(numPairs, sequenceIdxs, sequences);
+    // printParsedFile(fileInfo.numPairs, sequenceIdxs, sequences);
 
     // Score some matrices babyyyyyyyyyyy
     printf("Pair # | Score\n");
     // LinearSmithWaterman LSW("GAGTACTCAACACCAACATTGATGGGCAATGGAAAATAGCCTTCGCCATCACACCATTAAGGGTGA", "GAATACTCAACAGCAACATCAACGGGCAGCAGAAAATAGGCTTTGCCATCACTGCCATTAAGGATGTGGG", 3, -1, -2);
-    // for(int i = 0; i < numPairs/1000; i++){
+    // for(int i = 0; i < fileInfo.numPairs; i++){
     //     printf("%d | ", i);
     //     LinearSmithWaterman LSW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], matchWeight, mismatchWeight, gapWeight);
     //     LSW.align();
     // }
 
     // LinearNeedlemanWunsch LNW("GAGTACTCAACACCAACATTGATGGGCAATGGAAAATAGCCTTCGCCATCACACCATTAAGGGTGA", "GAATACTCAACAGCAACATCAACGGGCAGCAGAAAATAGGCTTTGCCATCACTGCCATTAAGGATGTGGG", 3, -1, -2);
-    for(int i = 0; i < numPairs/1000; i++){
-        printf("%d |", i);
+    for(int i = 0; i < fileInfo.numPairs; i++){
+        printf("%d | ", i);
         LinearNeedlemanWunsch LNW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], matchWeight, mismatchWeight, gapWeight);
         LNW.align();
     }
