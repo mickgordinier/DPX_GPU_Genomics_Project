@@ -148,7 +148,7 @@ void LinearNeedlemanWunsch::backtrack(){
     std::string pairRelation = "";
     std::string querySequence = "";
 
-    while ((currentMemoRow != 0) && (currentMemoCol != 0)) {
+    while ((currentMemoRow != 0) || (currentMemoCol != 0)) {
         
         // Determine the current cell's predecessor
         switch (backtrack_memo[currentMemoRow][currentMemoCol]) {
