@@ -3,11 +3,11 @@
 #include "../c++/parseInput.h"
 #include "../c++/backtrack.h"
 
-// Blocks are 1D with a size of the maximum 1024 threads
-#define BLOCK_SIZE 1024
+// Blocks are 1D with a size of the 32 threads (For 1 warp)
+#define BLOCK_SIZE 32
 
 // Defing this will test all of the sequences in the input file
-// #define TEST_ALL
+#define TEST_ALL
 
 /*
     THINGS TO CONSIDER FOR OPTIMIZATION
@@ -76,84 +76,167 @@ needleman_wunsch_kernel(
     [10][11]
     */
 
+    // Each thread needs to iterate through the loop to be able to make the __syncthreads() call
+    // All threads need to be able to reach the __syncthreads() call
+    const int differentRows = ((numRows - 1) / BLOCK_SIZE) + 1;
+
     // Every thread gets a row and char
     int rowIdx = tid + 1;
     char queryChar = queryString[rowIdx - 1];
 
-    int colIdxAdj = 0; // Adjustment col in case a thread needs to do multiple rows
+    int cell00Idx;
+    int cell01Idx;
+    int cell10Idx;
+    int cell11Idx;
 
-    // Main loop
-    // From Mick -> Christian: How did you come up with this equation?
-    const int numLoops = (numCols + numRows) + (numCols) * (queryLength/threadCount);
-    
-    for(int loopIdx = 1; loopIdx < numLoops; loopIdx++){
-        
-        // Make sure we dont use any threads that would go out of bounds
-        // Each thread works on any rowIdx that is a multiple of tid (+1)
-        if(rowIdx < numRows){
+    for (int rowLoopIdx = 0; rowLoopIdx < differentRows; ++rowLoopIdx) {
+
+        // If the thread in the warp is outside the matrix, wait for the other threads
+        if (rowIdx < numRows) {
+
+            // Each later thread must wait for the previous thread
+            int adjCol = 1 - tid;
             
-            // Stagger threads by their thread id
-            // colIdxAdj resets colIdx when moving onto a new row
-            int colIdx = loopIdx - tid + colIdxAdj;
+            // Each thread must go through the whole row
+            // BUT, there is an adjustment that each thread must wait for
+            for (int colIdx = 1; colIdx < (numCols+numRows); ++colIdx) {
 
-            int cell00Idx;
-            int cell01Idx;
-            int cell10Idx;
-            int cell11Idx;
+                // Setup cell indices once a thread can start executing
+                if(adjCol == 1){
+                    cell00Idx = (rowIdx-1)*numCols + adjCol - 1;
+                    cell01Idx = (rowIdx-1)*numCols + adjCol;
+                    cell10Idx = rowIdx*numCols + adjCol - 1;
+                    cell11Idx = rowIdx*numCols + adjCol; 
+                } 
 
-            // Setup cell indices once a thread can start executing
-            if(colIdx == 1){
-                cell00Idx = (rowIdx-1)*numCols + colIdx - 1;
-                cell01Idx = (rowIdx-1)*numCols + colIdx;
-                cell10Idx = rowIdx*numCols + colIdx - 1;
-                cell11Idx = rowIdx*numCols + colIdx; 
-            } 
+                // Main cell updating
+                if((adjCol > 0) && (adjCol < numCols)){
+                    
+                    char referenceChar = referenceString[adjCol - 1];
+                    direction cornerDirection = NONE;
+                    bool pred;
+                    
+                    // Determine if match
+                    bool isMatch = (queryChar == referenceChar);
+                    cornerDirection = isMatch ? MATCH : MISMATCH;
+    
+                    // Get all the possible scores
+                    int matchMismatchScore = isMatch ? scoringMatrix[cell00Idx] + matchWeight : scoringMatrix[cell00Idx] + mismatchWeight;
+                    int queryDeletionScore = scoringMatrix[cell01Idx] + gapWeight;
+                    int queryInsertionScore = scoringMatrix[cell10Idx] + gapWeight;
+    
+                    // Find the largest of the 3 scores
+                    // Utilizing DPX instructions for updating
+                    // pred = (queryDeletionScore >= matchMismatchScore)
+                    int largestScore;
+                    largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
+                    if (pred) cornerDirection = QUERY_DELETION;
+                    
+                    largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
+                    if (pred) cornerDirection = QUERY_INSERTION;
+    
+                    // Update scoring matrix and incrementing pointers
+                    scoringMatrix[cell11Idx] = largestScore;
+                    backtrackMatrix[cell11Idx] = cornerDirection;
+                    cell00Idx += 1;
+                    cell01Idx += 1;
+                    cell10Idx += 1;
+                    cell11Idx += 1;
+                }
 
-            // Main cell updating
-            if((colIdx > 0) && (colIdx < numCols)){
-                
-                char referenceChar = referenceString[colIdx - 1];
-                direction cornerDirection = NONE;
-                bool pred;
-                
-                // Determine if match
-                bool isMatch = (queryChar == referenceChar);
-                cornerDirection = isMatch ? MATCH : MISMATCH;
+                ++adjCol;
 
-                // Get all the possible scores
-                int matchMismatchScore = isMatch ? scoringMatrix[cell00Idx] + matchWeight : scoringMatrix[cell00Idx] + mismatchWeight;
-                int queryDeletionScore = scoringMatrix[cell01Idx] + gapWeight;
-                int queryInsertionScore = scoringMatrix[cell10Idx] + gapWeight;
+            } // end 
 
-                // Find the largest of the 3 scores
-                // Utilizing DPX instructions for updating
-                // pred = (queryDeletionScore >= matchMismatchScore)
-                int largestScore;
-                largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
-                if (pred) cornerDirection = QUERY_DELETION;
-                
-                largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
-                if (pred) cornerDirection = QUERY_INSERTION;
+        } // end if
 
-                // Update scoring matrix and incrementing pointers
-                scoringMatrix[cell11Idx] = largestScore;
-                backtrackMatrix[cell11Idx] = cornerDirection;
-                cell00Idx += 1;
-                cell01Idx += 1;
-                cell10Idx += 1;
-                cell11Idx += 1;
-            }
-
-            // If thread already completed its row, ready it for another
-            if(colIdx == (numCols - 1)){
-                rowIdx += threadCount;
-                queryChar = queryString[rowIdx - 1];
-                colIdxAdj -= colIdx;
-            }
-        }
-
+        // All previous threads must finish before moving onto the next row
         __syncthreads();
-    }
+            
+        rowIdx += BLOCK_SIZE;
+        queryChar = queryString[rowIdx - 1];
+
+    } // end for
+
+
+
+
+
+
+    // int colIdxAdj = 0; // Adjustment col in case a thread needs to do multiple rows
+
+    // // Main loop
+    // // From Mick -> Christian: How did you come up with this equation?
+    // const int numLoops = (numCols + numRows) + (numCols) * (queryLength/threadCount);
+    
+    // for(int loopIdx = 1; loopIdx < numLoops; loopIdx++){
+        
+    //     // Make sure we dont use any threads that would go out of bounds
+    //     // Each thread works on any rowIdx that is a multiple of tid (+1)
+    //     if(rowIdx < numRows){
+            
+    //         // Stagger threads by their thread id
+    //         // colIdxAdj resets colIdx when moving onto a new row
+    //         int colIdx = loopIdx - tid + colIdxAdj;
+
+    //         int cell00Idx;
+    //         int cell01Idx;
+    //         int cell10Idx;
+    //         int cell11Idx;
+
+    //         // Setup cell indices once a thread can start executing
+    //         if(colIdx == 1){
+    //             cell00Idx = (rowIdx-1)*numCols + colIdx - 1;
+    //             cell01Idx = (rowIdx-1)*numCols + colIdx;
+    //             cell10Idx = rowIdx*numCols + colIdx - 1;
+    //             cell11Idx = rowIdx*numCols + colIdx; 
+    //         } 
+
+    //         // Main cell updating
+    //         if((colIdx > 0) && (colIdx < numCols)){
+                
+    //             char referenceChar = referenceString[colIdx - 1];
+    //             direction cornerDirection = NONE;
+    //             bool pred;
+                
+    //             // Determine if match
+    //             bool isMatch = (queryChar == referenceChar);
+    //             cornerDirection = isMatch ? MATCH : MISMATCH;
+
+    //             // Get all the possible scores
+    //             int matchMismatchScore = isMatch ? scoringMatrix[cell00Idx] + matchWeight : scoringMatrix[cell00Idx] + mismatchWeight;
+    //             int queryDeletionScore = scoringMatrix[cell01Idx] + gapWeight;
+    //             int queryInsertionScore = scoringMatrix[cell10Idx] + gapWeight;
+
+    //             // Find the largest of the 3 scores
+    //             // Utilizing DPX instructions for updating
+    //             // pred = (queryDeletionScore >= matchMismatchScore)
+    //             int largestScore;
+    //             largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
+    //             if (pred) cornerDirection = QUERY_DELETION;
+                
+    //             largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
+    //             if (pred) cornerDirection = QUERY_INSERTION;
+
+    //             // Update scoring matrix and incrementing pointers
+    //             scoringMatrix[cell11Idx] = largestScore;
+    //             backtrackMatrix[cell11Idx] = cornerDirection;
+    //             cell00Idx += 1;
+    //             cell01Idx += 1;
+    //             cell10Idx += 1;
+    //             cell11Idx += 1;
+    //         }
+
+    //         // If thread already completed its row, ready it for another
+    //         if(colIdx == (numCols - 1)){
+    //             rowIdx += BLOCK_SIZE;
+    //             queryChar = queryString[rowIdx - 1];
+    //             colIdxAdj -= colIdx;
+    //         }
+    //     }
+
+    //     __syncthreads();
+    // }
 
     /* --- (END) POPULATING THE SCORING MATRIX -- */
 
@@ -269,7 +352,7 @@ int main(int argc, char *argv[]) {
             );
 
             // Need to launch kernel
-            needleman_wunsch_kernel<<<1, threadCount>>>(
+            needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
                 deviceScoringMatrix, deviceBacktrackMatrix,
                 deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
                 sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
@@ -364,7 +447,7 @@ int main(int argc, char *argv[]) {
 
         // Need to launch sinular kernel
         // Launching a kernel with 1 block with threadCount threads to populate scoring matrix
-        needleman_wunsch_kernel<<<1, threadCount>>>(
+        needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
             deviceScoringMatrix, deviceBacktrackMatrix,
             deviceQueryString, deviceReferenceString, 
             queryLength, referenceLength, 

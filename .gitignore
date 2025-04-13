@@ -2,3 +2,5 @@ python/__pycache__/
 *.out
 .vscode/
 input-datasets*
+*log*
+*.o

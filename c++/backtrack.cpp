@@ -28,7 +28,7 @@ void backtrackNW(const direction *backtrackMemo, const char *referenceString, co
     std::string pairRelation = "";
     std::string querySequence = "";
 
-    while ((currentMemoRow != 0) && (currentMemoCol != 0)) {
+    while ((currentMemoRow != 0) || (currentMemoCol != 0)) {
         
         // Determine the current cell's predecessor
         switch (backtrackMemo[(currentMemoRow * numCols) + currentMemoCol]) {
