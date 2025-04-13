@@ -7,7 +7,7 @@
 #define BLOCK_SIZE 1024
 
 // Defing this will test all of the sequences in the input file
-#define TEST_ALL
+// #define TEST_ALL
 
 /*
     THINGS TO CONSIDER FOR OPTIMIZATION
@@ -17,38 +17,58 @@
 */
 
 // NEEDLEMAN WUNSCH BASELINE KERNEL
-__global__ void needleman_wunsch_kernel(int *scoringMatrix, direction *backtrackMatrix,
-                        const char *queryString, const char *referenceString,
-                        const int queryLength, const int referenceLength,
-                        const int matchWeight, const int mismatchWeight, 
-                        const int gapWeight,   const int threadCount){
+
+__global__ void 
+needleman_wunsch_kernel(
+    int *scoringMatrix, direction *backtrackMatrix,
+    const char *queryString, const char *referenceString,
+    const int queryLength, const int referenceLength,
+    const int matchWeight, const int mismatchWeight, 
+    const int gapWeight)
+{
+    // We are only launching 1 block
+    // Thus, each thread will only have a unique threadID that differentiates the threads
     const int tid = threadIdx.x;
+    const int threadCount = blockDim.x;
+
+    // The matrices are of size (queryLength + 1) * (referenceLength + 1)
     const int numRows = queryLength + 1;
     const int numCols = referenceLength + 1;
 
-    // Initialize the matrix
-    if (tid < numRows*numCols) {
-        scoringMatrix[tid] = -999; // sentry value
-    }
-    __syncthreads();
+    /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
 
-    // Adjusted tid, used for when a thread has to iterate over more than one col/row
-    int adjtid;
+    // Used for when a thread has to iterate over more than one col/row
+    int elementIdx;
 
     // Initialize the top row
-    adjtid = tid;
-    while(adjtid < numCols) {
-        scoringMatrix[adjtid] = gapWeight*adjtid;
-        adjtid += threadCount;
+    // Writing in DRAM burst for faster updating
+    elementIdx = tid;
+    while(elementIdx < numCols) {
+        scoringMatrix[elementIdx] = gapWeight*elementIdx;
+        backtrackMatrix[elementIdx] = QUERY_INSERTION;
+        elementIdx += threadCount;
     }
 
     // Initialize the left col
-    adjtid = tid;
-    while(adjtid < numRows) {
-        scoringMatrix[adjtid*numCols] = gapWeight*adjtid;
-        adjtid += threadCount;
+    // NOT Writing in DRAM burst (slower)
+    elementIdx = tid;
+    while(elementIdx < numRows) {
+        scoringMatrix[elementIdx*numCols] = gapWeight*elementIdx;
+        backtrackMatrix[elementIdx*numCols] = QUERY_DELETION;
+        elementIdx += threadCount;
     }
+
+    if (tid == 0) {
+        backtrackMatrix[0] = NONE;
+    }
+
+    // Need to ensure that all threads in the block complete filling up all the edges
+    // Do not need to do syncthreads across each loop iteration as there is no dependencies
     __syncthreads();
+
+    /* --- (END) INITIALIZING THE SCORING MATRIX --- */
+
+    /* --- (BEGIN) POPULATING THE SCORING MATRIX -- */
 
     /*
     relative cell indices
@@ -58,15 +78,24 @@ __global__ void needleman_wunsch_kernel(int *scoringMatrix, direction *backtrack
 
     // Every thread gets a row and char
     int rowIdx = tid + 1;
-    int colIdxAdj = 0; // Adjustment cal in case a thread needs to do multiple rows
     char queryChar = queryString[rowIdx - 1];
 
+    int colIdxAdj = 0; // Adjustment col in case a thread needs to do multiple rows
+
     // Main loop
+    // From Mick -> Christian: How did you come up with this equation?
     const int numLoops = (numCols + numRows) + (numCols) * (queryLength/threadCount);
-    for(int idx = 1; idx < numLoops; idx++){
+    
+    for(int loopIdx = 1; loopIdx < numLoops; loopIdx++){
+        
         // Make sure we dont use any threads that would go out of bounds
+        // Each thread works on any rowIdx that is a multiple of tid (+1)
         if(rowIdx < numRows){
-            int colIdx = idx - tid + colIdxAdj; // Stagger threads by their thread id
+            
+            // Stagger threads by their thread id
+            // colIdxAdj resets colIdx when moving onto a new row
+            int colIdx = loopIdx - tid + colIdxAdj;
+
             int cell00Idx;
             int cell01Idx;
             int cell10Idx;
@@ -82,6 +111,7 @@ __global__ void needleman_wunsch_kernel(int *scoringMatrix, direction *backtrack
 
             // Main cell updating
             if((colIdx > 0) && (colIdx < numCols)){
+                
                 char referenceChar = referenceString[colIdx - 1];
                 direction cornerDirection = NONE;
                 bool pred;
@@ -96,6 +126,8 @@ __global__ void needleman_wunsch_kernel(int *scoringMatrix, direction *backtrack
                 int queryInsertionScore = scoringMatrix[cell10Idx] + gapWeight;
 
                 // Find the largest of the 3 scores
+                // Utilizing DPX instructions for updating
+                // pred = (queryDeletionScore >= matchMismatchScore)
                 int largestScore;
                 largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
                 if (pred) cornerDirection = QUERY_DELETION;
@@ -103,7 +135,7 @@ __global__ void needleman_wunsch_kernel(int *scoringMatrix, direction *backtrack
                 largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
                 if (pred) cornerDirection = QUERY_INSERTION;
 
-                // Update scoring matrix
+                // Update scoring matrix and incrementing pointers
                 scoringMatrix[cell11Idx] = largestScore;
                 backtrackMatrix[cell11Idx] = cornerDirection;
                 cell00Idx += 1;
@@ -115,132 +147,46 @@ __global__ void needleman_wunsch_kernel(int *scoringMatrix, direction *backtrack
             // If thread already completed its row, ready it for another
             if(colIdx == (numCols - 1)){
                 rowIdx += threadCount;
-                colIdxAdj -= colIdx;
                 queryChar = queryString[rowIdx - 1];
+                colIdxAdj -= colIdx;
             }
         }
+
         __syncthreads();
     }
+
+    /* --- (END) POPULATING THE SCORING MATRIX -- */
+
     return;
 
 }
 
-/*
-// Device kernel that each thread will be executing to fill in its respective row
-__global__ void
-needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMatrix,
-                        const char *queryString, const char *referenceString,
-                        const int queryLength, const int referenceLength,
-                        const int matchWeight, const int mismatchWeight, const int gapWeight)
+
+void
+handleErrs(
+    cudaError_t err,
+    const char *errMsg) 
 {
-
-    // Obtaining the 1D unique block and thread Id for the specific thread
-    int tid = threadIdx.x;
-    int numRows = queryLength + 1;
-    int numCols = referenceLength + 1;
-
-    // Initialize the top row
-    if (tid < numCols) {
-        scoringMatrix[tid] = gapWeight*tid;
-    }
-    __syncthreads();
-
-    // Initialize the left col
-    if (tid < numRows) {
-        scoringMatrix[tid*numCols] = gapWeight*tid;
-    }
-    __syncthreads();
-
-    int queryInsertionScore;
-    int queryDeletionScore;
-    int matchMismatchScore;
-    int largestScore;
-
-    direction cornerDirection;
-
-    int whileCount = 0;
-
-    int rowIdx, matrixIdx, rowAboveIdx;
-    char queryChar;
-
-    bool pred;
-
-    while ((whileCount * BLOCK_SIZE) + 1) {
-
-        rowIdx = (whileCount * BLOCK_SIZE) + tid + 1;
-
-        matrixIdx = rowIdx * referenceLength;
-        rowAboveIdx = ((rowIdx-1) * referenceLength) + 1;
-
-        // Each thread initializing the 0th column of their row to 0
-        if (rowIdx < queryLength) {
-            scoringMatrix[matrixIdx++] = gapWeight * tid;
-            queryChar = queryString[rowIdx - 1]; 
-        }
-
-        // Need to ensure all threads in the block have written to their respective location before continuing
-        __syncthreads();
-
-        // Need to fill up all the rows
-        // Starting on column idx 1
-        for (int i = 1; i < referenceLength + BLOCK_SIZE - 1; ++i) {
-
-            // On initialization, the lower threads need to wait for the upper thread to begin
-            // if i < tid, we can assume the thread has not yet calculated the above value
-            
-            // At the end, we don't want the thread to do any more computation at the end of its row
-            // Thus, we will have the thread stop updating the matrix once i >= (referenceLength + tid)
-            if ((rowIdx < queryLength) && (i >= tid) && (i < (referenceLength + tid))) {
-
-                cornerDirection = NONE;
-
-                const char referenceChar = referenceString[i - tid];
-
-                // If match, add the match score from the corner
-                if (queryChar == referenceChar){
-                    matchMismatchScore = scoringMatrix[rowAboveIdx-1] + matchWeight;
-                    cornerDirection = MATCH;
-                }
-                // Otherwise, add the penalty score from the corner
-                else {
-                    matchMismatchScore = scoringMatrix[rowAboveIdx-1] + mismatchWeight;
-                    cornerDirection = MISMATCH;
-                }
-                
-                // Calculate potential gap scores
-                queryDeletionScore = scoringMatrix[rowAboveIdx] + gapWeight;
-                queryInsertionScore = scoringMatrix[matrixIdx-1] + gapWeight;
-                
-                largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
-                if (pred) cornerDirection = QUERY_DELETION;
-                
-                largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
-                if (pred) cornerDirection = QUERY_INSERTION;
-
-                scoringMatrix[matrixIdx] = largestScore;
-                backtrackMatrix[matrixIdx] = cornerDirection;
-
-                ++matrixIdx;
-                ++rowAboveIdx;
-            }
-
-            // Need to ensure all threads in the block have written to their respective location before continuing
-            __syncthreads();
-
-        }
-
-        ++whileCount;
-
+    if (err != cudaSuccess) {
+        printf(errMsg);
+        printf("CUDA ERROR: %s\n", cudaGetErrorString(err));
+        exit(1);
     }
 }
-*/
+
 
 int main(int argc, char *argv[]) {
 
     // Print some cuda details
     printf("[Cuda Details]\n");
     int deviceCount;
-    cudaGetDeviceCount(&deviceCount);
+    cudaError_t err = cudaGetDeviceCount(&deviceCount);
+    if (err != cudaSuccess) {
+        printf("FAILED TO GET DEVICE COUNT\n");
+        printf("CUDA test kernel error: %s\n", cudaGetErrorString(err));
+        exit(1);
+    }
+
     printf("Device count: %d\n", deviceCount);
     int device = 0;
     cudaDeviceProp deviceProp;
@@ -283,21 +229,25 @@ int main(int argc, char *argv[]) {
     seqPair* sequenceIdxs;
     char* sequences;
     fileInfo = parseInput(pairFileName, sequenceIdxs, sequences);
-    printf("Num Pairs: %d\n", fileInfo.numPairs);
+    printf("Num Pairs: %d\n\n", fileInfo.numPairs);
 
     #ifdef TEST_ALL
+        
         // Copy over the sequences
         char* deviceSequences;
-        if (cudaMalloc(&deviceSequences, (fileInfo.numBytes) * sizeof(char)) != cudaSuccess) {
-            printf("FAILED TO ALLOCATE MEMORY TO SCORING MATRIX FOR SEQUENCE SEQUENCES\n");
-            exit(1);
-        }
 
-        cudaMemcpy(deviceSequences, sequences, (fileInfo.numBytes) * sizeof(char), cudaMemcpyHostToDevice);
-        
+        handleErrs(
+            cudaMalloc(&deviceSequences, (fileInfo.numBytes) * sizeof(char)),
+            "FAILED TO ALLOCATE MEMORY FOR ALL SEQUENCES\n"
+        );
+
+        handleErrs(
+            cudaMemcpy(deviceSequences, sequences, (fileInfo.numBytes) * sizeof(char), cudaMemcpyHostToDevice),
+            "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
+        );
+
         // Run the kernel on every sequence
         for(size_t i = 0; i < fileInfo.numPairs; i++){
-
 
             char *referenceString = &sequences[sequenceIdxs[i].referenceIdx];
             char *queryString = &sequences[sequenceIdxs[i].queryIdx];
@@ -308,36 +258,44 @@ int main(int argc, char *argv[]) {
             int *deviceScoringMatrix;
             direction *deviceBacktrackMatrix;
 
-            if (cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)) != cudaSuccess) {
-                printf("FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n");
-                exit(1);
-            }
-
-            if (cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction)) != cudaSuccess) {
-                printf("FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n");
-                exit(1);
-            }
+            handleErrs(
+                cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)),
+                "FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n"
+            );
+    
+            handleErrs(
+                cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction)),
+                "FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n"
+            );
 
             // Need to launch kernel
             needleman_wunsch_kernel<<<1, threadCount>>>(
                 deviceScoringMatrix, deviceBacktrackMatrix,
                 deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
                 sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
-                matchWeight, mismatchWeight, gapWeight,
-                threadCount);
+                matchWeight, mismatchWeight, gapWeight
+            );
             
             // Wait for kernel to finish
-            cudaError_t err = cudaDeviceSynchronize();
-            if (err != cudaSuccess) {
-                printf("CUDA test kernel error: %s\n", cudaGetErrorString(err));
-            }
+            handleErrs(
+                cudaDeviceSynchronize(),
+                "SYNCHRONIZATION FAILED\n"
+            );
 
             // Copy the matrices back over
             int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
             direction *hostBacktrackMatrix = new direction[(referenceLength+1) * (queryLength+1)];
 
-            cudaMemcpy(hostScoringMatrix, deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost);
-            cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost);
+            // Copy information back from device --> host
+            handleErrs(
+                cudaMemcpy(hostScoringMatrix, deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost),
+                "FAILED TO COPY SCORING MATRIX FROM DEVICE --> HOST"
+            );
+            
+            handleErrs(
+                cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost),
+                "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST"
+            );
 
             cudaFree(deviceScoringMatrix);
             cudaFree(deviceBacktrackMatrix);
@@ -374,29 +332,35 @@ int main(int argc, char *argv[]) {
         char *deviceReferenceString;
         char *deviceQueryString;
 
-        if (cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)) != cudaSuccess) {
-            printf("FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n");
-            exit(1);
-        }
+        handleErrs(
+            cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)),
+            "FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n"
+        );
 
-        if (cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction)) != cudaSuccess) {
-            printf("FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n");
-            exit(1);
-        }
+        handleErrs(
+            cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction)),
+            "FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n"
+        );
 
-        if (cudaMalloc(&deviceReferenceString, (referenceLength) * sizeof(char)) != cudaSuccess) {
-            printf("FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n");
-            exit(1);
-        }
-        cudaMemcpy(deviceReferenceString, referenceString, (referenceLength) * sizeof(char), cudaMemcpyHostToDevice);
+        handleErrs(
+            cudaMalloc(&deviceReferenceString, (referenceLength) * sizeof(char)),
+            "FAILED TO ALLOCATE MEMORY TO REFERENCE STRING\n"
+        );
 
-        if (cudaMalloc(&deviceQueryString, (queryLength) * sizeof(char)) != cudaSuccess) {
-            printf("FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n");
-            exit(1);
-        }
-        cudaMemcpy(deviceQueryString, queryString, (queryLength) * sizeof(char), cudaMemcpyHostToDevice);
+        handleErrs(
+            cudaMemcpy(deviceReferenceString, referenceString, (referenceLength) * sizeof(char), cudaMemcpyHostToDevice),
+            "FAILED TO COPY MEMORY TO REFERENCE STRING\n"
+        );
 
-        
+        handleErrs(
+            cudaMalloc(&deviceQueryString, (queryLength) * sizeof(char)),
+            "FAILED TO ALLOCATE MEMORY TO QUERY STRING\n"
+        );
+
+        handleErrs(
+            cudaMemcpy(deviceQueryString, queryString, (queryLength) * sizeof(char), cudaMemcpyHostToDevice),
+            "FAILED TO COPY MEMORY TO QUERY STRING\n"
+        );
 
         // Need to launch sinular kernel
         // Launching a kernel with 1 block with threadCount threads to populate scoring matrix
@@ -404,15 +368,14 @@ int main(int argc, char *argv[]) {
             deviceScoringMatrix, deviceBacktrackMatrix,
             deviceQueryString, deviceReferenceString, 
             queryLength, referenceLength, 
-            matchWeight, mismatchWeight, gapWeight,
-            threadCount);
+            matchWeight, mismatchWeight, gapWeight
+        );
 
-
-        // Wait for kernels to finish
-        cudaError_t err = cudaDeviceSynchronize();
-        if (err != cudaSuccess) {
-            printf("CUDA test kernel error: %s\n", cudaGetErrorString(err));
-        }
+        // Wait for kernel to finish
+        handleErrs(
+            cudaDeviceSynchronize(),
+            "SYNCHRONIZATION FAILED\n"
+        );
 
         // Allocate host memory for matrices
         // Allow for matrices to come from device -> host
@@ -420,8 +383,16 @@ int main(int argc, char *argv[]) {
         int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
         direction *hostBacktrackMatrix = new direction[(referenceLength+1) * (queryLength+1)];
 
-        cudaMemcpy(hostScoringMatrix, deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost);
+        // Copy information back from device --> host
+        handleErrs(
+            cudaMemcpy(hostScoringMatrix, deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost),
+            "FAILED TO COPY SCORING MATRIX FROM DEVICE --> HOST"
+        );
+        
+        handleErrs(
+            cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost),
+            "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST"
+        );
 
         cudaFree(deviceScoringMatrix);
         cudaFree(deviceBacktrackMatrix);
