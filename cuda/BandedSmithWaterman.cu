@@ -16,228 +16,65 @@
 
 */
 
-// NEEDLEMAN WUNSCH BASELINE KERNEL
-__global__ void needleman_wunsch_kernel(int *scoringMatrix, direction *backtrackMatrix,
+/* TODO: add band lmao */
+
+/* 
+NOTES
+-   each block handles a query-reference pair
+-   each thread operates on a single element in a diagonal
+-   threads iterate over the anti-diagonals of the matrix
+*/
+__global__ void banded_smith_waterman(int *scoringMatrix, direction *backtrackMatrix,
                         const char *queryString, const char *referenceString,
                         const int queryLength, const int referenceLength,
                         const int matchWeight, const int mismatchWeight, 
                         const int gapWeight,   const int threadCount){
-    const int tid = threadIdx.x;
-    const int numRows = queryLength + 1;
-    const int numCols = referenceLength + 1;
-
-    // Initialize the matrix
-    if (tid < numRows*numCols) {
-        scoringMatrix[tid] = -999; // sentry value
-    }
-    __syncthreads();
-
-    // Adjusted tid, used for when a thread has to iterate over more than one col/row
-    int adjtid;
-
-    // Initialize the top row
-    adjtid = tid;
-    while(adjtid < numCols) {
-        scoringMatrix[adjtid] = gapWeight*adjtid;
-        adjtid += threadCount;
-    }
-
-    // Initialize the left col
-    adjtid = tid;
-    while(adjtid < numRows) {
-        scoringMatrix[adjtid*numCols] = gapWeight*adjtid;
-        adjtid += threadCount;
-    }
-    __syncthreads();
-
-    /*
-    relative cell indices
-    [00][01]
-    [10][11]
-    */
-
-    // Every thread gets a row and char
-    int rowIdx = tid + 1;
-    int colIdxAdj = 0; // Adjustment cal in case a thread needs to do multiple rows
-    char queryChar = queryString[rowIdx - 1];
-
-    // Main loop
-    const int numLoops = (numCols + numRows) + (numCols) * (queryLength/threadCount);
-    for(int idx = 1; idx < numLoops; idx++){
-        // Make sure we dont use any threads that would go out of bounds
-        if(rowIdx < numRows){
-            int colIdx = idx - tid + colIdxAdj; // Stagger threads by their thread id
-            int cell00Idx;
-            int cell01Idx;
-            int cell10Idx;
-            int cell11Idx;
-
-            // Setup cell indices once a thread can start executing
-            if(colIdx == 1){
-                cell00Idx = (rowIdx-1)*numCols + colIdx - 1;
-                cell01Idx = (rowIdx-1)*numCols + colIdx;
-                cell10Idx = rowIdx*numCols + colIdx - 1;
-                cell11Idx = rowIdx*numCols + colIdx; 
-            } 
-
-            // Main cell updating
-            if((colIdx > 0) && (colIdx < numCols)){
-                char referenceChar = referenceString[colIdx - 1];
-                direction cornerDirection = NONE;
-                bool pred;
-                
-                // Determine if match
-                bool isMatch = (queryChar == referenceChar);
-                cornerDirection = isMatch ? MATCH : MISMATCH;
-
-                // Get all the possible scores
-                int matchMismatchScore = isMatch ? scoringMatrix[cell00Idx] + matchWeight : scoringMatrix[cell00Idx] + mismatchWeight;
-                int queryDeletionScore = scoringMatrix[cell01Idx] + gapWeight;
-                int queryInsertionScore = scoringMatrix[cell10Idx] + gapWeight;
-
-                // Find the largest of the 3 scores
-                int largestScore;
-                largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
-                if (pred) cornerDirection = QUERY_DELETION;
-                
-                largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
-                if (pred) cornerDirection = QUERY_INSERTION;
-
-                // Update scoring matrix
-                scoringMatrix[cell11Idx] = largestScore;
-                backtrackMatrix[cell11Idx] = cornerDirection;
-                cell00Idx += 1;
-                cell01Idx += 1;
-                cell10Idx += 1;
-                cell11Idx += 1;
-            }
-
-            // If thread already completed its row, ready it for another
-            if(colIdx == (numCols - 1)){
-                rowIdx += threadCount;
-                colIdxAdj -= colIdx;
-                queryChar = queryString[rowIdx - 1];
-            }
-        }
-        __syncthreads();
-    }
-    return;
-
-}
-
-/*
-// Device kernel that each thread will be executing to fill in its respective row
-__global__ void
-needleman_wunsch_forward_pass_kernel(int *scoringMatrix, direction *backtrackMatrix,
-                        const char *queryString, const char *referenceString,
-                        const int queryLength, const int referenceLength,
-                        const int matchWeight, const int mismatchWeight, const int gapWeight)
-{
-
-    // Obtaining the 1D unique block and thread Id for the specific thread
     int tid = threadIdx.x;
-    int numRows = queryLength + 1;
-    int numCols = referenceLength + 1;
+    int block = blockIdx.x;
+    int maxLen = max(queryLength, referenceLength);
+    int minLen = min(queryLength, referenceLength);
 
-    // Initialize the top row
-    if (tid < numCols) {
-        scoringMatrix[tid] = gapWeight*tid;
+    /* each block handles one query-reference pair */
+    extern __shared__ char shared_mem[];
+    char* shared_query = shared_mem;
+    char* shared_ref = shared_query + queryLength;
+
+    /* store scores for current and previous 2 diagonals */
+    int * shared_diag_base = (int *)(shared_ref + referenceLength);
+    int * current_diag = shared_diag_base;
+    int * prev_diag = shared_diag_base + maxLen + 1;
+    int * prev_prev_diag = shared_diag_base + 2*(maxLen + 1);
+
+    __shared__ int max_row, max_col, max_score;
+
+    /* load query & reference strings into shared memory */
+    if (tid == 0){
+        prev_diag[0] = 0;
+        prev_prev_diag[0] = 0;
+        current_diag[0] = 0;
+        max_score = -1;
     }
+
+    if (tid < queryLength){
+        shared_query[tid] = queryString[tid];
+    }
+
+    if (tid < referenceLength){
+        shared_ref[tid] = referenceString[tid];
+    }
+
     __syncthreads();
 
-    // Initialize the left col
-    if (tid < numRows) {
-        scoringMatrix[tid*numCols] = gapWeight*tid;
+    /* iterate over diagonals */
+    for (int d = 2; d < minLen * 2 + 1; d++){
+        
     }
-    __syncthreads();
 
-    int queryInsertionScore;
-    int queryDeletionScore;
-    int matchMismatchScore;
-    int largestScore;
 
-    direction cornerDirection;
-
-    int whileCount = 0;
-
-    int rowIdx, matrixIdx, rowAboveIdx;
-    char queryChar;
-
-    bool pred;
-
-    while ((whileCount * BLOCK_SIZE) + 1) {
-
-        rowIdx = (whileCount * BLOCK_SIZE) + tid + 1;
-
-        matrixIdx = rowIdx * referenceLength;
-        rowAboveIdx = ((rowIdx-1) * referenceLength) + 1;
-
-        // Each thread initializing the 0th column of their row to 0
-        if (rowIdx < queryLength) {
-            scoringMatrix[matrixIdx++] = gapWeight * tid;
-            queryChar = queryString[rowIdx - 1]; 
-        }
-
-        // Need to ensure all threads in the block have written to their respective location before continuing
-        __syncthreads();
-
-        // Need to fill up all the rows
-        // Starting on column idx 1
-        for (int i = 1; i < referenceLength + BLOCK_SIZE - 1; ++i) {
-
-            // On initialization, the lower threads need to wait for the upper thread to begin
-            // if i < tid, we can assume the thread has not yet calculated the above value
-            
-            // At the end, we don't want the thread to do any more computation at the end of its row
-            // Thus, we will have the thread stop updating the matrix once i >= (referenceLength + tid)
-            if ((rowIdx < queryLength) && (i >= tid) && (i < (referenceLength + tid))) {
-
-                cornerDirection = NONE;
-
-                const char referenceChar = referenceString[i - tid];
-
-                // If match, add the match score from the corner
-                if (queryChar == referenceChar){
-                    matchMismatchScore = scoringMatrix[rowAboveIdx-1] + matchWeight;
-                    cornerDirection = MATCH;
-                }
-                // Otherwise, add the penalty score from the corner
-                else {
-                    matchMismatchScore = scoringMatrix[rowAboveIdx-1] + mismatchWeight;
-                    cornerDirection = MISMATCH;
-                }
-                
-                // Calculate potential gap scores
-                queryDeletionScore = scoringMatrix[rowAboveIdx] + gapWeight;
-                queryInsertionScore = scoringMatrix[matrixIdx-1] + gapWeight;
-                
-                largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
-                if (pred) cornerDirection = QUERY_DELETION;
-                
-                largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
-                if (pred) cornerDirection = QUERY_INSERTION;
-
-                scoringMatrix[matrixIdx] = largestScore;
-                backtrackMatrix[matrixIdx] = cornerDirection;
-
-                ++matrixIdx;
-                ++rowAboveIdx;
-            }
-
-            // Need to ensure all threads in the block have written to their respective location before continuing
-            __syncthreads();
-
-        }
-
-        ++whileCount;
-
-    }
 }
-*/
 
 int main(int argc, char *argv[]) {
-
-    // Print some cuda details
+    /* log Cuda details */
     printf("[Cuda Details]\n");
     int deviceCount;
     cudaGetDeviceCount(&deviceCount);
@@ -249,18 +86,19 @@ int main(int argc, char *argv[]) {
            device, deviceProp.major, deviceProp.minor);
     printf("Concurrent kernels?: %d\n\n", deviceProp.concurrentKernels);
 
-    // Check that YOU use it correctly
+    /* ensure proper usage s*/
     if (argc < 2) {
 		fprintf(stderr, "usage: main -pairs <InSeqFile> -match <matchWeight> -mismatch <mismatchWeight> -gap <gapWeight> \n");
 		exit(EXIT_FAILURE);
     }
 	
-    // Get args
+    /* get args */
     char *pairFileName;
     int matchWeight     = 3;
     int mismatchWeight  = -1;
     int gapWeight       = -2;
     int threadCount     = 32;
+    // int band            = 16;
     if(strcmp(argv[1], "-pairs") == 0) {
         pairFileName = argv[2];
     }
@@ -276,6 +114,9 @@ int main(int argc, char *argv[]) {
     if(argc > 9 && strcmp(argv[9], "-threads-per-alignment") == 0) {
         threadCount = atoi(argv[10]);
     }
+    // if (argc > 11 && strcmp(argv[11], "-band") == 0){
+    //     band = atoi(argv[12]);
+    // }
 
     // Parse input file
     printf("Parsing input file: %s\n", pairFileName);
