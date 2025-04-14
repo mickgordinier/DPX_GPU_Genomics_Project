@@ -39,7 +39,7 @@ def readOutputSequences(filePath):
   with open(filePath, "r") as f:
       lines = f.readlines()
 
-  lines = lines[2:-1]
+  lines = lines[0:-1]
 
   # Process every 4 lines in the remaining list
   for i in range(0, len(lines), 4):
