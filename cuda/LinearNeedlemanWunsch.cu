@@ -289,12 +289,12 @@ int main(int argc, char *argv[]) {
             // Copy information back from device --> host
             handleErrs(
                 cudaMemcpy(hostScoringMatrix, deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost),
-                "FAILED TO COPY SCORING MATRIX FROM DEVICE --> HOST"
+                "FAILED TO COPY SCORING MATRIX FROM DEVICE --> HOST\n"
             );
             
             handleErrs(
                 cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost),
-                "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST"
+                "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
             );
 
             cudaFree(deviceScoringMatrix);

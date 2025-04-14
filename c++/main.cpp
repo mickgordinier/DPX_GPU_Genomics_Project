@@ -1,7 +1,8 @@
 #include <cstring>
 #include "parseInput.h"
-#include "LinearSmithWaterman.h"
-#include "LinearNeedlemanWunsch.h"
+// #include "LinearSmithWaterman.h"
+// #include "LinearNeedlemanWunsch.h"
+#include "AffineNeedlemanWunsch.h"
 
 using std::strcmp;
 
@@ -17,7 +18,9 @@ int main(int argc, char *argv[]){
     char *pairFileName;
     int matchWeight     = 3;
     int mismatchWeight  = -1;
-    int gapWeight       = -2;
+    // int gapWeight   = -2;
+    int gapOpenWeight   = -4;
+    int gapExtendWeight = -1;
     if(strcmp(argv[1], "-pairs") == 0) {
         pairFileName = argv[2];
     }
@@ -27,8 +30,14 @@ int main(int argc, char *argv[]){
     if(argc > 5 && strcmp(argv[5], "-mismatch") == 0) {
         mismatchWeight = atoi(argv[6]);
     }
-    if(argc > 7 && strcmp(argv[7], "-gap") == 0) {
-        gapWeight = atoi(argv[8]);
+    // if(argc > 7 && strcmp(argv[7], "-gap") == 0) {
+    //     gapWeight = atoi(argv[8]);
+    // }
+    if(argc > 7 && strcmp(argv[7], "-open") == 0) {
+        gapOpenWeight = atoi(argv[8]);
+    }
+    if(argc > 9 && strcmp(argv[9], "-extend") == 0) {
+        gapExtendWeight = atoi(argv[10]);
     }
 
     // Parse input file
@@ -54,8 +63,10 @@ int main(int argc, char *argv[]){
     // LinearNeedlemanWunsch LNW("GAGTACTCAACACCAACATTGATGGGCAATGGAAAATAGCCTTCGCCATCACACCATTAAGGGTGA", "GAATACTCAACAGCAACATCAACGGGCAGCAGAAAATAGGCTTTGCCATCACTGCCATTAAGGATGTGGG", 3, -1, -2);
     for(int i = 0; i < fileInfo.numPairs; i++){
         printf("%d | ", i);
-        LinearNeedlemanWunsch LNW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], matchWeight, mismatchWeight, gapWeight);
-        LNW.align();
+        // LinearNeedlemanWunsch LNW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], matchWeight, mismatchWeight, gapWeight);
+        // LNW.align();
+        AffineNeedlemanWunsch ANW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], matchWeight, mismatchWeight, gapOpenWeight, gapExtendWeight);
+        ANW.align();
     }
 
     // Free data arrays
