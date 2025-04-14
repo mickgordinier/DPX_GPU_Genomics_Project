@@ -42,8 +42,8 @@ __global__ void banded_smith_waterman(int *scoringMatrix, direction *backtrackMa
     /* store scores for current and previous 2 diagonals */
     int * shared_diag_base = (int *)(shared_ref + referenceLength);
     int * current_diag = shared_diag_base;
-    int * prev_diag = shared_diag_base + maxLen + 1;
-    int * prev_prev_diag = shared_diag_base + 2*(maxLen + 1);
+    int * prev_diag = shared_diag_base + minLen + 1;
+    int * prev_prev_diag = shared_diag_base + 2*(minLen + 1);
 
     __shared__ int max_row, max_col, max_score;
 
@@ -65,12 +65,39 @@ __global__ void banded_smith_waterman(int *scoringMatrix, direction *backtrackMa
 
     __syncthreads();
 
-    /* iterate over diagonals */
-    for (int d = 2; d < minLen * 2 + 1; d++){
-        
+    int curr_len = 0, prev_len = 0, prev_prev_len = 0;
+    /* start on diagonal 2 */
+    for (int diag = 2; diag < queryLength + referenceLength + 1; diag++){
+        int prev_diag = diag - 1;
+        int prev_prev_diag = diag - 2;
+        if (diag < referenceLength) {
+            curr_len = diag + 1;
+        } else if (diag < queryLength + 1) {
+            curr_len = referenceLength + 1;
+        } else {
+            curr_len = referenceLength - abs(queryLength - (diag - 1));
+        }
+
+        if (prev_diag < referenceLength){
+            prev_len = prev_diag + 1;
+        } else if (prev_diag < queryLength + 1){
+            prev_len = referenceLength + 1;
+        } else {
+            prev_len = referenceLength - abs(queryLength - (prev_diag - 1));
+        }
+
+        if (prev_prev_diag < referenceLength){
+            prev_len = prev_prev_diag + 1;
+        } else if (prev_prev_diag < queryLength + 1){
+            prev_len = referenceLength + 1;
+        } else {
+            prev_len = referenceLength - abs(queryLength - (prev_prev_diag - 1));
+        }
+
+        if (tid == 0){
+            printf("diag: %d, prev_diag: %d, prev_prev_diag: %d\n", curr_len, prev_len, prev_prev_len);
+        }
     }
-
-
 }
 
 int main(int argc, char *argv[]) {
@@ -86,7 +113,7 @@ int main(int argc, char *argv[]) {
            device, deviceProp.major, deviceProp.minor);
     printf("Concurrent kernels?: %d\n\n", deviceProp.concurrentKernels);
 
-    /* ensure proper usage s*/
+    /* ensure proper usage */
     if (argc < 2) {
 		fprintf(stderr, "usage: main -pairs <InSeqFile> -match <matchWeight> -mismatch <mismatchWeight> -gap <gapWeight> \n");
 		exit(EXIT_FAILURE);
@@ -160,7 +187,9 @@ int main(int argc, char *argv[]) {
             }
 
             // Need to launch kernel
-            needleman_wunsch_kernel<<<1, threadCount>>>(
+            int minLen = min(queryLength, referenceLength);
+            int total_shared_size = queryLength + referenceLength + 3*(minLen + 1)*sizeof(int);
+            banded_smith_waterman<<<1, threadCount, total_shared_size>>>(
                 deviceScoringMatrix, deviceBacktrackMatrix,
                 deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
                 sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
@@ -241,7 +270,7 @@ int main(int argc, char *argv[]) {
 
         // Need to launch sinular kernel
         // Launching a kernel with 1 block with threadCount threads to populate scoring matrix
-        needleman_wunsch_kernel<<<1, threadCount>>>(
+        banded_smith_waterman<<<1, threadCount>>>(
             deviceScoringMatrix, deviceBacktrackMatrix,
             deviceQueryString, deviceReferenceString, 
             queryLength, referenceLength, 

@@ -19,6 +19,9 @@ test: test.cu
 LNW: LinearNeedlemanWunsch.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
+BSW: BandedSmithWaterman.cu $(CPP_SOURCES)
+	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
+
 %: %.cu
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
