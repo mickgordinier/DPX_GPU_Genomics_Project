@@ -127,7 +127,7 @@ def main():
     page = browser.new_page()
 
     # Open the target URL
-    page.goto("https://rna.informatik.uni-freiburg.de/Teaching/index.jsp?toolName=Needleman-Wunsch")
+    page.goto("https://rna.informatik.uni-freiburg.de/Teaching/index.jsp?toolName=Gotoh")
 
     # Optional: Wait for page to load fully (e.g., wait for a specific element)
     page.wait_for_load_state("networkidle")
@@ -145,6 +145,7 @@ def main():
     for i in range(len(input_references)):
     
       print("------------------------------- PERFORMING NEW ALIGNMENT TESTING -----------------------------------\n")
+      print("PAIR #:", i)
       print("INPUT REFERENCE:", input_references[i])
       print("INPUT QUERY:", input_queries[i])
       print()

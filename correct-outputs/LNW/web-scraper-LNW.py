@@ -143,6 +143,7 @@ def main():
     for i in range(len(input_references)):
     
       print("------------------------------- PERFORMING NEW ALIGNMENT TESTING -----------------------------------\n")
+      print("PAIR #:", i)
       print("INPUT REFERENCE:", input_references[i])
       print("INPUT QUERY:", input_queries[i])
       print()
