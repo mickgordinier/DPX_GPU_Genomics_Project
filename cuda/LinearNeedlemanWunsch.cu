@@ -35,6 +35,8 @@ needleman_wunsch_kernel_warp_shuffle(
     const int numRows = queryLength + 1;
     const int numCols = referenceLength + 1;
 
+    extern __shared__ int warpEdgeScore[];  // used so thread 31 can hand off its val to t0 at the end of a stripe
+
     /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
     // Used for when a thread has to iterate over more than one col/row
     int elementIdx = tid;
@@ -59,93 +61,85 @@ needleman_wunsch_kernel_warp_shuffle(
 
     if (tid == 0) {
         backtrackMatrix[0] = NONE;
-        printf("query string: %s reference string: %s\n", queryString, referenceString);
+        // printf("query string: %s reference string: %s\n", queryString, referenceString);
     }
 
     /* --- (END) INITIALIZING THE SCORING MATRIX --- */
 
     /* --- (BEGIN) POPULATING THE SCORING MATRIX -- */
-    
-    const int maxDiag = numRows + numCols;
-    if (tid == 0){
-        printf("Max diag: %d\n", maxDiag);
-    }
-    int leftDiag = gapWeight*tid, left = gapWeight*(tid+1), up = gapWeight*(tid+1);
+    int leftDiag = gapWeight*tid, left = gapWeight*(tid+1), up = gapWeight*(tid+1), tmp_left = left;
 
-    for (int diag = 2; diag <= maxDiag; ++diag){
-        int r = diag - (laneIdx + 1);
-        int c = laneIdx + 1;
-        if (r >= 32) break; //TODO: remove, only here so we're not overwriting stuff rn
+    for (int stripeStart = 1; stripeStart < numRows; stripeStart+=32){
+        int row = stripeStart + tid;
 
-        /* special handling for boundary cells */
-        // up = (r == 1) ? gapWeight*c : up;
-        // left = (c == 1) ? gapWeight*r : left;
-        // leftDiag = (r == 1) ? gapWeight*(c-1) : (c == 1) ? gapWeight*(r-1): leftDiag;
-        if (r == 1){
-            up = gapWeight*c;
-            leftDiag = gapWeight*(c-1);
-        }
-        if (c == 1){
-            left = gapWeight*r;
-            leftDiag = gapWeight*(r-1);
-        }
-        int largestScore = 0, tmp_up = 0;
-        if (r > 0 && r < numRows && c > 0 && c < numCols){
-           //  printf("tid %d received leftdiag %d, left %d, up %d\n", tid, leftDiag, left, up);
-            char queryChar = queryString[r-1];
-            char referenceChar = referenceString[c-1];
+        /* threads outside of bounds should abort */
+        if (row >= numRows) break;
+        for (int col = 1; col < (numCols+numRows); ++col){
+            int largestScore = 0;
+            int adj_col = col - tid;
 
-            direction cornerDirection = NONE;
-            bool pred;
-            bool isMatch = (queryChar == referenceChar);
-            // printf("thread %d found isMatch %d for row %d col %d qChar %c to rChar %c\n", tid, isMatch, r, c, queryChar, referenceChar);
-            cornerDirection = isMatch ? MATCH : MISMATCH;
-
-            int matchMismatchScore = isMatch ? leftDiag + matchWeight : leftDiag + mismatchWeight;
-            int queryDeletionScore = up + gapWeight;
-            int queryInsertionScore = left + gapWeight;
-
-            largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
-            if (pred) cornerDirection = QUERY_DELETION;
-                    
-            largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
-            if (pred) cornerDirection = QUERY_INSERTION;
-
-            printf("tid %d active during diag %d with ref %c query %c up %d, match result %d, matchMismatchScore %d, largestScore %d\n", tid, diag, referenceChar, queryChar, up, isMatch, matchMismatchScore, largestScore);
-
-            scoringMatrix[r * numCols + c] = largestScore;
-            backtrackMatrix[r * numCols + c] = cornerDirection;
-
-            tmp_up = up;
-
-            /* upper value for thread n + 1 is its largestScore (just calculated value) */
-            up = largestScore;
-
-        }
-
-        printf("tid %d | r %d c %d | pre-shuffle left %d | pre-shuffle leftDiag %d | pre-shuffle up %d\n", tid, r, c, left, leftDiag, tmp_up);
-        /* left value for thread n + 1 is thread n's largestScore (just calculated value)*/
-        left = __shfl_up_sync(0xffffffff, largestScore, 1);
-
-        /* left diag value for thread n + 1 is thread n's "top" value (previously calculated value) */
-        leftDiag = __shfl_up_sync(0xffffffff, tmp_up, 1);
-
-        printf("tid %d | r %d c %d | post-shuffle left %d | post-shuffle leftDiag %d | post-shuffle up %d\n", tid, r, c, left, leftDiag, up);
-
-    }
-
-    
-    if (tid == 0){
-        printf("numRows: %d numCols: %d\n", numRows, numCols);
-        for (int i = 0; i < numRows; ++i){
-            for (int j = 0; j < numCols; ++j){
-                printf("%d ", scoringMatrix[i*numCols + j]);
+            if (row == 1){
+                leftDiag = gapWeight*(adj_col - 1);
+                up = gapWeight*(adj_col);
             }
-            printf("\n");
+
+            if (adj_col == 1){
+                leftDiag = gapWeight*(row - 1);
+                left = gapWeight*(row);
+            }
+
+            if (stripeStart > 1 && tid == 0){
+                /* t0 neds to grab upper value & leftDiag from t31 */
+                up = warpEdgeScore[adj_col];
+                leftDiag = (adj_col == 1) ? gapWeight*(row - 1) : warpEdgeScore[adj_col - 1];
+            }
+
+            if (adj_col > 0 && adj_col < numCols){
+                char queryChar = queryString[row-1];
+                char referenceChar = referenceString[adj_col-1];
+    
+                direction cornerDirection = NONE;
+                bool pred;
+                bool isMatch = (queryChar == referenceChar);
+                // printf("thread %d found isMatch %d for row %d col %d qChar %c to rChar %c; left %d leftDiag %d up %d\n", tid, isMatch, row, adj_col, queryChar, referenceChar, left, leftDiag, up);
+                cornerDirection = isMatch ? MATCH : MISMATCH;
+    
+                int matchMismatchScore = isMatch ? leftDiag + matchWeight : leftDiag + mismatchWeight;
+                int queryDeletionScore = up + gapWeight;
+                int queryInsertionScore = left + gapWeight;
+    
+                largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
+                if (pred) cornerDirection = QUERY_DELETION;
+                        
+                largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
+                if (pred) cornerDirection = QUERY_INSERTION;
+
+                scoringMatrix[row * numCols + adj_col] = largestScore;
+                backtrackMatrix[row * numCols + adj_col] = cornerDirection;
+
+                tmp_left = left;
+                left = largestScore;
+
+                if (tid == 31){
+                    // printf("tid %d populting warpEdgeScore as %d row %d col %d\n", tid, largestScore, row, adj_col);
+                    warpEdgeScore[adj_col] = largestScore;
+                }
+            }
+
+            if (tid == 0){
+                // printf("tid %d | r %d c %d | pre-shuffle left %d | pre-shuffle leftDiag %d | pre-shuffle up %d\n", tid, row, adj_col, tmp_left, leftDiag, up);
+            }
+
+            /*  top value for thread n + 1 is thread n's largestScore (just calculated value)*/
+            up = __shfl_up_sync(0xffffffff, largestScore, 1);
+
+            /* left diag value for thread n + 1 is thread n's left value (previously calculated value) */
+            leftDiag = __shfl_up_sync(0xffffffff, tmp_left, 1);
+            if (tid == 0){
+                // printf("tid %d | r %d c %d | post-shuffle left %d | post-shuffle leftDiag %d | post-shuffle up %d\n", tid, row, adj_col, left, leftDiag, up);
+            }
         }
     }
-
-    /* --- (END) POPULATING THE SCORING MATRIX -- */
 }
 
 // NEEDLEMAN WUNSCH BASELINE KERNEL
@@ -401,7 +395,8 @@ int main(int argc, char *argv[]) {
             );
 
             // Need to launch kernel
-            needleman_wunsch_kernel_warp_shuffle<<<1, BLOCK_SIZE>>>(
+            int smem_size = 5*(referenceLength)*sizeof(int);
+            needleman_wunsch_kernel_warp_shuffle<<<1, BLOCK_SIZE, smem_size>>>(
                 deviceScoringMatrix, deviceBacktrackMatrix,
                 deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
                 sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
@@ -434,6 +429,12 @@ int main(int argc, char *argv[]) {
 
             // Backtrack matrices
             printf("%d | %d\n", i, hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
+            // for (int r = 0; r < queryLength + 1; r++){
+            //     for (int c = 0; c < referenceLength + 1; c++){
+            //         printf("%4d ", hostScoringMatrix[r*(referenceLength+1) + c]);
+            //     }
+            //     printf("\n");
+            // }
             backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
 
             // Free data arrays
