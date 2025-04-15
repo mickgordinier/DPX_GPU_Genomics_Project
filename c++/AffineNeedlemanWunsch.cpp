@@ -376,12 +376,15 @@ void AffineNeedlemanWunsch::backtrack(){
         querySequence = "_" + querySequence;
         --currentMemoCol;
     }
-
+    #ifdef USE_THREADS
+        printLock();
+    #endif
     #ifdef PRINT_EXTRA
         cout << "[Needleman-Wunsch Score: " << scoringMemo[scoringMemo.size()-1][scoringMemo[0].size()-1] << "]\n";
         cout << "[Sequence Pairing(s)]\n";
         cout << "====================\n";
     #else
+        printf("%d | ", pairNum);
         cout << scoringMemo[scoringMemo.size()-1][scoringMemo[0].size()-1] << "\n";
     #endif
 
@@ -392,6 +395,10 @@ void AffineNeedlemanWunsch::backtrack(){
     #ifdef PRINT_EXTRA
         cout << "====================\n";
         cout << std::endl;
+    #endif
+    #ifdef USE_THREADS
+        fflush(stdout);
+        printUnlock();
     #endif
 }
 

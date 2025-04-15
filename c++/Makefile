@@ -17,6 +17,10 @@ print_vars:
 main: $(CPP_TARGET) $(CPP_OBJECTS) $(CPP_HEADERS)
 	$(GCC) $(GCC_FLAGS) -pthread main.cpp $(CPP_OBJECTS) -o $@
 
+# MAKE SURE TO CHANGE DEFINES IN MAIN.CPP AND PRINTLOCK.H TO ACTUALLY CHOOSE KERNEL
+alignLSW: main
+	./$< -pairs $(INPUT_SMALL) -match 3 -mismatch -1 -open -2 > $@.out
+
 alignLNW: main
 	./$< -pairs $(INPUT_SMALL) -match 3 -mismatch -1 -open -2 > $@.out
 

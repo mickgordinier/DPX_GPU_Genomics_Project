@@ -1,5 +1,6 @@
 #include <cstring>
 #include <cassert>
+#include <math.h>
 #include <pthread.h>
 #include "printLock.h"
 #include "parseInput.h"
@@ -8,7 +9,20 @@
 #include "AffineNeedlemanWunsch.h"
 #include "timing.h"
 
+// DEBUG printing for multithreading
 //#define DEBUG
+
+// MULTHREADED DEFINE (USE_THREADS) IS IN PRINTLOCK.H
+// REMEMBER THAT MULTITHREADING OUTPUT ORDERING IS NONDETERMINISTIC -> USE reorderOutput.py [input file] [output file]
+// Multithreaded parameters 
+#define PAIRS_PER_THREAD 20
+#define THREADS_PER_BATCH 20
+
+// Choose what alignment we are doing (ONLY CHOOSE ONE)
+//#define LSW_ENABLE
+#define LNW_ENABLE
+//#define ANW_ENABLE
+
 
 using std::strcmp;
 
@@ -16,21 +30,23 @@ struct thread_arg{
     int threadID;
     int batchID;
     int pairNum;
-    char* reference;
-    char* query;
+    int numPairs;
+    char* sequences;
+    seqPair* sequenceIdxs;
     int matchWeight;
     int mismatchWeight;
     int gapOpenWeight;
-    int gapExtendweight;
+    int gapExtendWeight;
 };
 
-void* threadComputeLNW(void *tmp){
+void* threadComputeLSW(void *tmp){
 	struct thread_arg* threadData = (struct thread_arg*)tmp;
     int threadID            = threadData->threadID;
     int batchID             = threadData->batchID;
     int pairNum             = threadData->pairNum;
-    char* reference         = threadData->reference;
-	char* query             = threadData->query;
+    int numPairs            = threadData->numPairs;
+    char* sequences         = threadData->sequences;
+	seqPair* sequenceIdxs   = threadData->sequenceIdxs;
     int matchWeight         = threadData->matchWeight;
     int mismatchWeight      = threadData->mismatchWeight;
     int gapWeight           = threadData->gapOpenWeight;
@@ -42,8 +58,61 @@ void* threadComputeLNW(void *tmp){
         printUnlock();
     #endif
 
-    LinearNeedlemanWunsch LNW(reference, query, pairNum, matchWeight, mismatchWeight, gapWeight);
-    LNW.align();
+    for(int i = pairNum; i < pairNum + numPairs; i++){
+        LinearSmithWaterman LSW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], i, matchWeight, mismatchWeight, gapWeight);
+        LSW.align();
+    }
+}
+
+void* threadComputeLNW(void *tmp){
+	struct thread_arg* threadData = (struct thread_arg*)tmp;
+    int threadID            = threadData->threadID;
+    int batchID             = threadData->batchID;
+    int pairNum             = threadData->pairNum;
+    int numPairs            = threadData->numPairs;
+    char* sequences         = threadData->sequences;
+	seqPair* sequenceIdxs   = threadData->sequenceIdxs;
+    int matchWeight         = threadData->matchWeight;
+    int mismatchWeight      = threadData->mismatchWeight;
+    int gapWeight           = threadData->gapOpenWeight;
+
+    #ifdef DEBUG
+        printLock();
+        printf("Thread ID: %d Batch ID: %d\n", threadID, batchID);
+        fflush(stdout);
+        printUnlock();
+    #endif
+
+    for(int i = pairNum; i < pairNum + numPairs; i++){
+        LinearNeedlemanWunsch LNW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], i, matchWeight, mismatchWeight, gapWeight);
+        LNW.align();
+    }
+}
+
+void* threadComputeANW(void *tmp){
+	struct thread_arg* threadData = (struct thread_arg*)tmp;
+    int threadID            = threadData->threadID;
+    int batchID             = threadData->batchID;
+    int pairNum             = threadData->pairNum;
+    int numPairs            = threadData->numPairs;
+    char* sequences         = threadData->sequences;
+	seqPair* sequenceIdxs   = threadData->sequenceIdxs;
+    int matchWeight         = threadData->matchWeight;
+    int mismatchWeight      = threadData->mismatchWeight;
+    int gapOpenWeight       = threadData->gapOpenWeight;
+    int gapExtendWeight     = threadData->gapExtendWeight;
+
+    #ifdef DEBUG
+        printLock();
+        printf("Thread ID: %d Batch ID: %d\n", threadID, batchID);
+        fflush(stdout);
+        printUnlock();
+    #endif
+
+    for(int i = pairNum; i < pairNum + numPairs; i++){
+        AffineNeedlemanWunsch ANW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], i, matchWeight, mismatchWeight, gapOpenWeight, gapExtendWeight);
+        ANW.align();
+    }
 }
 
 int main(int argc, char *argv[]){
@@ -95,24 +164,32 @@ int main(int argc, char *argv[]){
     uint64_t start_time = start_timer();
     printf("Pair # | Score\n");
     #ifdef USE_THREADS
-        int threadsPerBatch = 100;
-        int numBatches      = fileInfo.numPairs/100;
+        int numPairsPerThread   = PAIRS_PER_THREAD;
+        int threadsPerBatch     = THREADS_PER_BATCH;
+        int numBatches          = ceil((fileInfo.numPairs/numPairsPerThread)/threadsPerBatch);
         int batchID;
         int threadID;
         for(batchID = 0; batchID < numBatches; batchID++){
+            int numThreadsComputing = 0;
             pthread_t           *threads    = (pthread_t*)malloc(sizeof(pthread_t)*threadsPerBatch);
             struct thread_arg   *threadArgs = (thread_arg*)malloc(sizeof(thread_arg)*threadsPerBatch);
             for(threadID = 0; threadID < threadsPerBatch; threadID++){
                 struct thread_arg threadArg;
                 threadArg.threadID  = threadID;
                 threadArg.batchID   = batchID;
-                threadArg.pairNum   = batchID*threadsPerBatch + threadID;
-                threadArg.reference = &sequences[sequenceIdxs[batchID*threadsPerBatch + threadID].referenceIdx];
-                threadArg.query     = &sequences[sequenceIdxs[batchID*threadsPerBatch + threadID].queryIdx];
-                threadArg.matchWeight       = matchWeight;
-                threadArg.mismatchWeight    = mismatchWeight;
-                threadArg.gapOpenWeight     = gapOpenWeight;
-                threadArgs[threadID]        = threadArg;
+                threadArg.pairNum   = batchID*threadsPerBatch*numPairsPerThread + threadID*numPairsPerThread;
+                // Dont create a thread if we exceed the number of pairs
+                if(threadArg.pairNum > fileInfo.numPairs - 1){
+                    break;
+                }
+                threadArg.numPairs        = numPairsPerThread;
+                threadArg.sequences       = sequences;
+                threadArg.sequenceIdxs    = sequenceIdxs;
+                threadArg.matchWeight     = matchWeight;
+                threadArg.mismatchWeight  = mismatchWeight;
+                threadArg.gapOpenWeight   = gapOpenWeight;
+                threadArg.gapExtendWeight = gapExtendWeight;
+                threadArgs[threadID]      = threadArg;
                 
                 #ifdef DEBUG
                     printLock();
@@ -122,12 +199,21 @@ int main(int argc, char *argv[]){
                 #endif
                 
                 int ret;
-                ret = pthread_create(&threads[threadID], NULL, threadComputeLNW, (void*) &threadArgs[threadID]);
+                #ifdef LSW_ENABLE
+                    ret = pthread_create(&threads[threadID], NULL, threadComputeLSW, (void*) &threadArgs[threadID]);
+                #endif
+                #ifdef LNW_ENABLE
+                    ret = pthread_create(&threads[threadID], NULL, threadComputeLNW, (void*) &threadArgs[threadID]);
+                #endif
+                #ifdef ANW_ENABLE
+                    ret = pthread_create(&threads[threadID], NULL, threadComputeANW, (void*) &threadArgs[threadID]);
+                #endif
                 assert(ret == 0);
+                numThreadsComputing++;
             }
 
             // Wait for each thread to terminate
-            for(threadID = 0; threadID < threadsPerBatch; threadID++){
+            for(threadID = 0; threadID < numThreadsComputing; threadID++){
                 #ifdef DEBUG
                     printLock();
                     printf("Attempting to wait for thread thread:%d\n", threadID);
@@ -147,24 +233,24 @@ int main(int argc, char *argv[]){
 
     #else
         // Score some matrices babyyyyyyyyyyy
-        // LinearSmithWaterman LSW("GAGTACTCAACACCAACATTGATGGGCAATGGAAAATAGCCTTCGCCATCACACCATTAAGGGTGA", "GAATACTCAACAGCAACATCAACGGGCAGCAGAAAATAGGCTTTGCCATCACTGCCATTAAGGATGTGGG", 3, -1, -2);
-        // for(int i = 0; i < fileInfo.numPairs; i++){
-        //     printf("%d | ", i);
-        //     LinearSmithWaterman LSW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], matchWeight, mismatchWeight, gapOpenWeight);
-        //     LSW.align();
-        // }
-
-        for(int i = 0; i < fileInfo.numPairs; i++){
-            //printf("%d | ", i);
-            LinearNeedlemanWunsch LNW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], i, matchWeight, mismatchWeight, gapOpenWeight);
-            LNW.align();
-        }
-
-        // for(int i = 0; i < fileInfo.numPairs/100; i++){
-        //     printf("%d | ", i);
-        //     AffineNeedlemanWunsch ANW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], matchWeight, mismatchWeight, gapOpenWeight, gapExtendWeight);
-        //     ANW.align();
-        // }
+        #ifdef LSW_ENABLE
+            for(int i = 0; i < fileInfo.numPairs; i++){
+                LinearSmithWaterman LSW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], i, matchWeight, mismatchWeight, gapOpenWeight);
+                LSW.align();
+            }
+        #endif
+        #ifdef LNW_ENABLE
+            for(int i = 0; i < fileInfo.numPairs; i++){
+                LinearNeedlemanWunsch LNW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], i, matchWeight, mismatchWeight, gapOpenWeight);
+                LNW.align();
+            }
+        #endif
+        #ifdef ANW_ENABLE
+            for(int i = 0; i < fileInfo.numPairs/; i++){
+                AffineNeedlemanWunsch ANW(&sequences[sequenceIdxs[i].referenceIdx], &sequences[sequenceIdxs[i].queryIdx], i, matchWeight, mismatchWeight, gapOpenWeight, gapExtendWeight);
+                ANW.align();
+            }
+        #endif
     #endif
 
     uint64_t elapsed_time = get_elapsed_time();

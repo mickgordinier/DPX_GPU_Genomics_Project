@@ -7,6 +7,7 @@ Description: Class for performing linear-gap penalty global Needleman-Wunsch als
 #include <deque>
 #include "SequenceAligner.h"
 #include "debug.h"
+#include "printLock.h"
 
 class AffineNeedlemanWunsch: public SequenceAligner {
     
