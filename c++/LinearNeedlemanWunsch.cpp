@@ -193,6 +193,9 @@ void LinearNeedlemanWunsch::backtrack(){
 
         } // end switch
     } // end while
+    #ifdef USE_THREADS
+        printLock();
+    #endif
     #ifdef PRINT_MATRIX
         print_matrix();
     #endif
@@ -201,6 +204,7 @@ void LinearNeedlemanWunsch::backtrack(){
         cout << "[Sequence Pairing(s)]\n";
         cout << "====================\n";
     #else
+        printf("%d | ", pairNum);
         cout << memo[memo.size()-1][memo[0].size()-1] << "\n";
     #endif
 
@@ -209,8 +213,12 @@ void LinearNeedlemanWunsch::backtrack(){
     cout << querySequence << std::endl;
     
     #ifdef PRINT_EXTRA
-        cout << "====================\n";
-        cout << std::endl;
+    cout << "====================\n";
+    cout << std::endl;
+    #endif
+    #ifdef USE_THREADS
+        fflush(stdout);
+        printUnlock();
     #endif
 }
 

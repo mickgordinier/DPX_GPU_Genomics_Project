@@ -4,6 +4,7 @@
 #include <deque>
 #include "SequenceAligner.h"
 #include "debug.h"
+#include "printLock.h"
 
 //#define BACKTRACK_ALL
 
@@ -47,8 +48,8 @@ class LinearSmithWaterman: public SequenceAligner{
 
 
     public:
-    LinearSmithWaterman(const std::string input_reference, const std::string input_query, const int match_weight, const int mismatch_weight, const int gap_weight) : 
-        SequenceAligner(input_reference, input_query), 
+    LinearSmithWaterman(const std::string input_reference, const std::string input_query, const int pairNum, const int match_weight, const int mismatch_weight, const int gap_weight) : 
+        SequenceAligner(input_reference, input_query, pairNum), 
         match_weight(match_weight), 
         mismatch_weight(mismatch_weight), 
         gap_weight(gap_weight) {

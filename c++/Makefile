@@ -15,10 +15,10 @@ print_vars:
 	@echo "Object Files $(CPP_OBJECTS)"
 
 main: $(CPP_TARGET) $(CPP_OBJECTS) $(CPP_HEADERS)
-	$(GCC) $(GCC_FLAGS) main.cpp $(CPP_OBJECTS) -o $@
+	$(GCC) $(GCC_FLAGS) -pthread main.cpp $(CPP_OBJECTS) -o $@
 
 alignLNW: main
-	./$< -pairs $(INPUT_SMALL) -match 3 -mismatch -1 -gap -2 > $@.out
+	./$< -pairs $(INPUT_SMALL) -match 3 -mismatch -1 -open -2 > $@.out
 
 alignANW: main
 	./$< -pairs $(INPUT_SMALL) -match 3 -mismatch -1 -open -3 -extend -1 > $@.out

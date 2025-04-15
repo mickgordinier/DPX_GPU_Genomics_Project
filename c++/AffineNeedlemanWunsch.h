@@ -55,10 +55,10 @@ class AffineNeedlemanWunsch: public SequenceAligner {
 
     public:
     
-        AffineNeedlemanWunsch(const std::string inputReference, const std::string inputQuery, 
+        AffineNeedlemanWunsch(const std::string inputReference, const std::string inputQuery, const int pairNum,
                                 const int matchWeight, const int mismatchWeight, 
                                 const int gapOpenWeight, const int gapExtendWeight) : 
-            SequenceAligner(inputReference, inputQuery), 
+            SequenceAligner(inputReference, inputQuery, pairNum), 
             matchWeight(matchWeight), 
             mismatchWeight(mismatchWeight), 
             gapOpenWeight(gapOpenWeight),

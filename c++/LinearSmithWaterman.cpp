@@ -238,6 +238,9 @@ void LinearSmithWaterman::align(){
 }
 
 void LinearSmithWaterman::print_results(){
+    #ifdef USE_THREADS
+        printLock();
+    #endif
     #ifdef PRINT_MATRIX
         cout << "[Scored Matrix]\n";
         print_matrix();
@@ -247,6 +250,7 @@ void LinearSmithWaterman::print_results(){
         cout << "[Sequence Pairing(s)]\n";
         cout << "====================\n";
     #else
+    printf("%d | ", pairNum);
         cout << max_score << "\n";
     #endif
 
@@ -272,6 +276,10 @@ void LinearSmithWaterman::print_results(){
             cout << "\n";
         #endif
     }
+    #ifdef USE_THREADS
+        fflush(stdout);
+        printUnlock();
+    #endif
 
     //cout << std::endl;
 }

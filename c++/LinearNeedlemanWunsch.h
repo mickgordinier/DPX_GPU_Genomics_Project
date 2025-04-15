@@ -7,6 +7,7 @@ Description: Class for performing linear-gap penalty global Needleman-Wunsch als
 #include <deque>
 #include "SequenceAligner.h"
 #include "debug.h"
+#include "printLock.h"
 
 class LinearNeedlemanWunsch: public SequenceAligner {
     
@@ -38,9 +39,9 @@ class LinearNeedlemanWunsch: public SequenceAligner {
 
     public:
     
-        LinearNeedlemanWunsch(const std::string input_reference, const std::string input_query, 
+        LinearNeedlemanWunsch(const std::string input_reference, const std::string input_query, const int pairNum, 
                                 const int match_weight, const int mismatch_weight, const int gap_weight) : 
-            SequenceAligner(input_reference, input_query), 
+            SequenceAligner(input_reference, input_query, pairNum), 
             match_weight(match_weight), 
             mismatch_weight(mismatch_weight), 
             gap_weight(gap_weight) {}

@@ -8,9 +8,10 @@ class SequenceAligner {
     protected: // <-- makes it so that derived classes can access, but main() cannot
     std::string reference_str;
     std::string query_str;
+    int pairNum;
 
     public:
-    SequenceAligner(const std::string input_reference, const std::string input_query) : reference_str(input_reference), query_str(input_query){}
+    SequenceAligner(const std::string input_reference, const std::string input_query, const int pairNum) : reference_str(input_reference), query_str(input_query), pairNum(pairNum) {}
 
     // Virtual functions that will be implemented by derived classes
     virtual void init_matrix() = 0;
