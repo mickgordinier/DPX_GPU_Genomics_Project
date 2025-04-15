@@ -59,6 +59,7 @@ needleman_wunsch_kernel_warp_shuffle(
 
     if (tid == 0) {
         backtrackMatrix[0] = NONE;
+        printf("query string: %s reference string: %s\n", queryString, referenceString);
     }
 
     /* --- (END) INITIALIZING THE SCORING MATRIX --- */
@@ -66,55 +67,71 @@ needleman_wunsch_kernel_warp_shuffle(
     /* --- (BEGIN) POPULATING THE SCORING MATRIX -- */
     
     const int maxDiag = numRows + numCols;
+    if (tid == 0){
+        printf("Max diag: %d\n", maxDiag);
+    }
     int leftDiag = gapWeight*tid, left = gapWeight*(tid+1), up = gapWeight*(tid+1);
 
     for (int diag = 2; diag <= maxDiag; ++diag){
         int r = diag - (laneIdx + 1);
         int c = laneIdx + 1;
-        if (r >= 32 || c >= 32) break; //TODO: remove, only here so we're not overwriting stuff
+        if (r >= 32) break; //TODO: remove, only here so we're not overwriting stuff rn
+
+        /* special handling for boundary cells */
+        // up = (r == 1) ? gapWeight*c : up;
+        // left = (c == 1) ? gapWeight*r : left;
+        // leftDiag = (r == 1) ? gapWeight*(c-1) : (c == 1) ? gapWeight*(r-1): leftDiag;
+        if (r == 1){
+            up = gapWeight*c;
+            leftDiag = gapWeight*(c-1);
+        }
+        if (c == 1){
+            left = gapWeight*r;
+            leftDiag = gapWeight*(r-1);
+        }
+        int largestScore = 0, tmp_up = 0;
         if (r > 0 && r < numRows && c > 0 && c < numCols){
-            printf("tid %d received leftdiag %d, left %d, up %d\n", tid, leftDiag, left, up);
+           //  printf("tid %d received leftdiag %d, left %d, up %d\n", tid, leftDiag, left, up);
             char queryChar = queryString[r-1];
             char referenceChar = referenceString[c-1];
 
             direction cornerDirection = NONE;
             bool pred;
             bool isMatch = (queryChar == referenceChar);
-            printf("thread %d found isMatch %d for row %d col %d qChar %c to rChar %c\n", tid, isMatch, r, c, queryChar, referenceChar);
+            // printf("thread %d found isMatch %d for row %d col %d qChar %c to rChar %c\n", tid, isMatch, r, c, queryChar, referenceChar);
             cornerDirection = isMatch ? MATCH : MISMATCH;
 
-            int matchMismatchScore = leftDiag + (isMatch ? matchWeight : mismatchWeight);
+            int matchMismatchScore = isMatch ? leftDiag + matchWeight : leftDiag + mismatchWeight;
             int queryDeletionScore = up + gapWeight;
             int queryInsertionScore = left + gapWeight;
 
-            int largestScore;
             largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
             if (pred) cornerDirection = QUERY_DELETION;
                     
             largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
             if (pred) cornerDirection = QUERY_INSERTION;
 
+            printf("tid %d active during diag %d with ref %c query %c up %d, match result %d, matchMismatchScore %d, largestScore %d\n", tid, diag, referenceChar, queryChar, up, isMatch, matchMismatchScore, largestScore);
+
             scoringMatrix[r * numCols + c] = largestScore;
             backtrackMatrix[r * numCols + c] = cornerDirection;
 
-            printf("tid %d giving leftdiag %d, left %d\n", tid, up, largestScore);
-            
-            /* left value for thread n + 1 is thread n's largestScore (just calculated value)*/
-            left = __shfl_up_sync(0xffffffff, largestScore, 1);
-
-            /* left diag value for thread n + 1 is thread n's "top" value (previously calculated value) */
-            leftDiag = __shfl_up_sync(0xffffffff, up, 1);
+            tmp_up = up;
 
             /* upper value for thread n + 1 is its largestScore (just calculated value) */
             up = largestScore;
 
-            if (tid == 0){
-                leftDiag = gapWeight*c;
-                left = gapWeight*(c+1);
-            }
-
-            printf("tid %d now has leftDiag %d, left %d, up %d\n", tid, leftDiag, left, up);
         }
+
+        printf("tid %d | r %d c %d | pre-shuffle left %d | pre-shuffle leftDiag %d | pre-shuffle up %d\n", tid, r, c, left, leftDiag, tmp_up);
+        /* left value for thread n + 1 is thread n's largestScore (just calculated value)*/
+        left = __shfl_up_sync(0xffffffff, largestScore, 1);
+
+        /* left diag value for thread n + 1 is thread n's "top" value (previously calculated value) */
+        leftDiag = __shfl_up_sync(0xffffffff, tmp_up, 1);
+
+        printf("tid %d | r %d c %d | post-shuffle left %d | post-shuffle leftDiag %d | post-shuffle up %d\n", tid, r, c, left, leftDiag, up);
+
     }
 
     
