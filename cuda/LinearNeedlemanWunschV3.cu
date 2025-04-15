@@ -5,6 +5,7 @@
 
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
+#define BATCH_SIZE 5
 
 // Defing this will test all of the sequences in the input file
 // #define TEST_ALL
@@ -20,32 +21,31 @@
 
 __global__ void 
 needleman_wunsch_kernel(
-    int *scoringMatrix,          directionMain *backtrackMatrix,
-    const char *queryStrings,    const char *referenceStrings,
-    const int *queryStartingIdxs, const int *referenceStartingIdxs,
-    const int *queryLengths,     const int *referenceLengths,
-    const int matchWeight,       const int mismatchWeight, 
-    const int gapWeight)
+    int **batchScoringMatrices, directionMain **batchBacktrackMatrices,
+    const char *allSequences, const seqPair *allSequenceInfo,
+    const int matchWeight, const int mismatchWeight, const int gapWeight,
+    const int startingSequenceIdx)
 {
+
+    const int threadCount = blockDim.x;
+    const int tid = threadIdx.x;
 
     // We are launching multiple blocks, each of a warp of threads
     // Each block handles their own sequence alignment
     // We index into the array to obtain the strings and length
-    const int queryStartingIdx = queryStartingIdxs[blockIdx.x];
-    const int referenceStartingIdx = referenceStartingIdxs[blockIdx.x];
     
-    const char *queryString = queryStrings + queryStartingIdx;
-    const char *referenceString = referenceStrings + queryStartingIdx;
+    int *scoringMatrix = batchScoringMatrices[blockIdx.x];
+    directionMain *backtrackMatrix = batchBacktrackMatrices[blockIdx.x];
 
-    const int queryLength = queryLengths[blockIdx.x];
-    const int referenceLength = referenceLengths[blockIdx.x];
-
-    const int tid = threadIdx.x;
-    const int threadCount = blockDim.x;
+    const int sequenceIdx = startingSequenceIdx + blockIdx.x;
+    const seqPair sequenceInfo = allSequenceInfo[sequenceIdx];
+    
+    const char *queryString = allSequences + sequenceInfo.queryIdx;
+    const char *referenceString = allSequences + sequenceInfo.referenceIdx;
 
     // The matrices are of size (queryLength + 1) * (referenceLength + 1)
-    const int numRows = queryLength + 1;
-    const int numCols = referenceLength + 1;
+    const int numRows = sequenceInfo.queryLength + 1;
+    const int numCols = sequenceInfo.referenceLength + 1;
 
     /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
 
@@ -227,15 +227,16 @@ int main(int argc, char *argv[]) {
     // Parse input file
     printf("Parsing input file: %s\n", pairFileName);
     inputInfo fileInfo;
-    seqPair* sequenceIdxs;
+    seqPair* allSequenceInfo;
     char* sequences;
-    fileInfo = parseInput(pairFileName, sequenceIdxs, sequences);
+    fileInfo = parseInput(pairFileName, allSequenceInfo, sequences);
     printf("Num Pairs: %d\n\n", fileInfo.numPairs);
 
     #ifdef TEST_ALL
         
         // Copy over the sequences
         char* deviceSequences;
+        seqPair *deviceAllSequenceInfo;
 
         handleErrs(
             cudaMalloc(&deviceSequences, (fileInfo.numBytes) * sizeof(char)),
@@ -247,34 +248,82 @@ int main(int argc, char *argv[]) {
             "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
         );
 
+        handleErrs(
+            cudaMalloc(&deviceAllSequenceInfo, (fileInfo.numPairs) * sizeof(seqPair)),
+            "FAILED TO ALLOCATE MEMORY FOR ALL SEQUENCES\n"
+        );
+
+        handleErrs(
+            cudaMemcpy(deviceAllSequenceInfo, allSequenceInfo, (fileInfo.numPairs) * sizeof(seqPair), cudaMemcpyHostToDevice),
+            "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
+        );
+
         // Run the kernel on every sequence
-        for(size_t i = 0; i < fileInfo.numPairs; i++){
+        for(size_t sequenceIdx = 0; sequenceIdx < fileInfo.numPairs; sequenceIdx+=BATCH_SIZE){
 
-            char *referenceString = &sequences[sequenceIdxs[i].referenceIdx];
-            char *queryString = &sequences[sequenceIdxs[i].queryIdx];
+            // char *referenceString = &sequences[sequenceIdxs[i].referenceIdx];
+            // char *queryString = &sequences[sequenceIdxs[i].queryIdx];
 
-            int referenceLength = strlen(referenceString);
-            int queryLength = strlen(queryString);
+            // int referenceLength = strlen(referenceString);
+            // int queryLength = strlen(queryString);
 
-            int *deviceScoringMatrix;
-            directionMain *deviceBacktrackMatrix;
+            int **tempDeviceScoringMatrices = (int **)malloc(BATCH_SIZE * sizeof(int*));
+            directionMain **tempDeviceBacktrackMatrices = (directionMain **)malloc(BATCH_SIZE * sizeof(directionMain*));
+
+            for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
+                
+                const int queryLength = allSequenceInfo[i].querySize;
+                const int referenceLength = allSequenceInfo[i].referenceSize;
+                
+                int *deviceScoringMatrix;
+                directionMain *deviceBacktrackMatrix;
+
+                handleErrs(
+                    cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)),
+                    "FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n"
+                );
+        
+                handleErrs(
+                    cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain)),
+                    "FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n"
+                );
+
+                tempDeviceScoringMatrices[i-sequenceIdx] = deviceScoringMatrix;
+                tempDeviceBacktrackMatrices[i-sequenceIdx] = deviceBacktrackMatrix;
+            }
+
+            int **deviceScoringMatrices;
+            directionMain **deviceBacktrackMatrices;
 
             handleErrs(
-                cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)),
-                "FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n"
+                cudaMalloc(&deviceScoringMatrices, BATCH_SIZE * sizeof(int*)),
+                "FAILED TO ALLOCATE MEMORY TO deviceScoringMatrices\n"
             );
-    
+
             handleErrs(
-                cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain)),
-                "FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n"
+                cudaMemcpy(deviceScoringMatrices, tempDeviceScoringMatrices, BATCH_SIZE * sizeof(int*), cudaMemcpyHostToDevice),
+                "FAILED TO COPY MEMORY FOR deviceScoringMatrices\n"
             );
+
+            handleErrs(
+                cudaMalloc(&deviceBacktrackMatrices, BATCH_SIZE * sizeof(directionMain*)),
+                "FAILED TO ALLOCATE MEMORY TO deviceBacktrackMatrices\n"
+            );
+
+            handleErrs(
+                cudaMemcpy(deviceBacktrackMatrices, tempDeviceBacktrackMatrices, BATCH_SIZE * sizeof(directionMain*), cudaMemcpyHostToDevice),
+                "FAILED TO COPY MEMORY FOR deviceBacktrackMatrices\n"
+            );
+
+            free(tempDeviceScoringMatrices);
+            free(tempDeviceBacktrackMatrices);
 
             // Need to launch kernel
-            needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
-                deviceScoringMatrix, deviceBacktrackMatrix,
-                deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
-                sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
-                matchWeight, mismatchWeight, gapWeight
+            needleman_wunsch_kernel<<<BATCH_SIZE, BLOCK_SIZE>>>(
+                deviceScoringMatrices, deviceBacktrackMatrices,
+                deviceSequences, deviceAllSequenceInfo,
+                matchWeight, mismatchWeight, gapWeight,
+                sequenceIdx
             );
             
             // Wait for kernel to finish
