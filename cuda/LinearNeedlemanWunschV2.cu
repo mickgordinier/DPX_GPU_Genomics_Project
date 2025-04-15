@@ -7,7 +7,7 @@
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
 
-// Defing this will test all of the sequences in the input file
+// Defining this will test all of the sequences in the input file
 #define TEST_ALL
 
 /*
@@ -18,6 +18,7 @@
 */
 
 // NEEDLEMAN WUNSCH BASELINE KERNEL
+// SUPPORTS KERNELS WITH THREADS LESS THAN QUERY LENGTH
 
 __global__ void 
 needleman_wunsch_kernel(
@@ -222,12 +223,16 @@ int main(int argc, char *argv[]) {
     printf("Num Pairs: %d\n\n", fileInfo.numPairs);
 
     // Start timer
+    uint64_t kernel_time = 0;
+    uint64_t memalloc_time = 0;
+    uint64_t backtracking_time = 0;
     uint64_t start_time = start_timer();
     #ifdef TEST_ALL
         
         // Copy over the sequences
         char* deviceSequences;
 
+        uint64_t start_memalloc = get_time();
         handleErrs(
             cudaMalloc(&deviceSequences, (fileInfo.numBytes) * sizeof(char)),
             "FAILED TO ALLOCATE MEMORY FOR ALL SEQUENCES\n"
@@ -237,6 +242,7 @@ int main(int argc, char *argv[]) {
             cudaMemcpy(deviceSequences, sequences, (fileInfo.numBytes) * sizeof(char), cudaMemcpyHostToDevice),
             "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
         );
+        memalloc_time += get_time() - start_memalloc;
 
         // Run the kernel on every sequence
         for(size_t i = 0; i < fileInfo.numPairs; i++){
@@ -250,6 +256,7 @@ int main(int argc, char *argv[]) {
             int *deviceScoringMatrix;
             directionMain *deviceBacktrackMatrix;
 
+            start_memalloc = get_time();
             handleErrs(
                 cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)),
                 "FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n"
@@ -259,7 +266,9 @@ int main(int argc, char *argv[]) {
                 cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain)),
                 "FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n"
             );
+            memalloc_time += get_time() - start_memalloc;
 
+            uint64_t start_kernel = get_time();
             // Need to launch kernel
             needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
                 deviceScoringMatrix, deviceBacktrackMatrix,
@@ -273,7 +282,9 @@ int main(int argc, char *argv[]) {
                 cudaDeviceSynchronize(),
                 "SYNCHRONIZATION FAILED\n"
             );
+            kernel_time += get_time() - start_kernel;
 
+            start_memalloc = get_time();
             // Copy the matrices back over
             int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
             directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
@@ -291,10 +302,13 @@ int main(int argc, char *argv[]) {
 
             cudaFree(deviceScoringMatrix);
             cudaFree(deviceBacktrackMatrix);
+            memalloc_time += get_time() - start_memalloc;
 
             // Backtrack matrices
             printf("%d | %d\n", i, hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
+            uint64_t start_backtrack = get_time();
             backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
+            backtracking_time += get_time() - start_backtrack;
 
             // Free data arrays
             delete[] hostScoringMatrix;
@@ -409,6 +423,10 @@ int main(int argc, char *argv[]) {
 
     uint64_t elapsed_time = get_elapsed_time();
     printf("Elapsed time (usec): %lld\n", elapsed_time);
+    printf("Elapsed kernel time (usec): %lld\n", kernel_time);
+    printf("Elapsed backtracking time (usec): %lld\n", backtracking_time);
+    printf("Elapsed memallocing time (usec): %lld\n", memalloc_time);
+    printf("Elapsed time sum (usec): %lld\n",kernel_time + backtracking_time + memalloc_time);
 
     // Cleanup
     printf("Cleaning up\n");
