@@ -18,7 +18,7 @@
 
 __global__ void 
 needleman_wunsch_kernel_warp_shuffle(
-    int * __restrict__ scoringMatrix,
+    int * scoringMatrix,
     direction * __restrict__ backtrackMatrix,
     const char * __restrict__ queryString, const char * __restrict__ referenceString,
     const int queryLength, const int referenceLength,
@@ -27,13 +27,13 @@ needleman_wunsch_kernel_warp_shuffle(
 {
     // We are only launching 1 block
     // Thus, each thread will only have a unique threadID that differentiates the threads
+
     const int tid = threadIdx.x;
     const int laneIdx = tid & 0x1f;; // thread index within warp 
     const int threadCount = blockDim.x;
 
     const int numRows = queryLength + 1;
     const int numCols = referenceLength + 1;
-
 
     /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
     // Used for when a thread has to iterate over more than one col/row
@@ -66,21 +66,24 @@ needleman_wunsch_kernel_warp_shuffle(
     /* --- (BEGIN) POPULATING THE SCORING MATRIX -- */
     
     const int maxDiag = numRows + numCols;
-    int leftDiag = gapWeight*elementIdx, left = gapWeight*elementIdx, up = gapWeight*elementIdx;
+    int leftDiag = gapWeight*tid, left = gapWeight*(tid+1), up = gapWeight*(tid+1);
 
     for (int diag = 2; diag <= maxDiag; ++diag){
-        int r = laneIdx + 1;
-        int c = diag - laneIdx;
-        if (r < numRows && c > 0 && c < numCols){
+        int r = diag - (laneIdx + 1);
+        int c = laneIdx + 1;
+        if (r >= 32 || c >= 32) break; //TODO: remove, only here so we're not overwriting stuff
+        if (r > 0 && r < numRows && c > 0 && c < numCols){
+            printf("tid %d received leftdiag %d, left %d, up %d\n", tid, leftDiag, left, up);
             char queryChar = queryString[r-1];
             char referenceChar = referenceString[c-1];
 
             direction cornerDirection = NONE;
             bool pred;
             bool isMatch = (queryChar == referenceChar);
+            printf("thread %d found isMatch %d for row %d col %d qChar %c to rChar %c\n", tid, isMatch, r, c, queryChar, referenceChar);
             cornerDirection = isMatch ? MATCH : MISMATCH;
 
-            int matchMismatchScore = leftDiag + isMatch ? matchWeight : mismatchWeight;
+            int matchMismatchScore = leftDiag + (isMatch ? matchWeight : mismatchWeight);
             int queryDeletionScore = up + gapWeight;
             int queryInsertionScore = left + gapWeight;
 
@@ -93,20 +96,35 @@ needleman_wunsch_kernel_warp_shuffle(
 
             scoringMatrix[r * numCols + c] = largestScore;
             backtrackMatrix[r * numCols + c] = cornerDirection;
+
+            printf("tid %d giving leftdiag %d, left %d\n", tid, up, largestScore);
             
             /* left value for thread n + 1 is thread n's largestScore (just calculated value)*/
             left = __shfl_up_sync(0xffffffff, largestScore, 1);
 
             /* left diag value for thread n + 1 is thread n's "top" value (previously calculated value) */
-            leftDiag = __shfl_up_sync(0xffffffff, largestScore, 1);
+            leftDiag = __shfl_up_sync(0xffffffff, up, 1);
 
             /* upper value for thread n + 1 is its largestScore (just calculated value) */
             up = largestScore;
 
             if (tid == 0){
-                leftDiag = gapWeight*elementIdx;
-                left = gapWeight*elementIdx;
+                leftDiag = gapWeight*c;
+                left = gapWeight*(c+1);
             }
+
+            printf("tid %d now has leftDiag %d, left %d, up %d\n", tid, leftDiag, left, up);
+        }
+    }
+
+    
+    if (tid == 0){
+        printf("numRows: %d numCols: %d\n", numRows, numCols);
+        for (int i = 0; i < numRows; ++i){
+            for (int j = 0; j < numCols; ++j){
+                printf("%d ", scoringMatrix[i*numCols + j]);
+            }
+            printf("\n");
         }
     }
 
