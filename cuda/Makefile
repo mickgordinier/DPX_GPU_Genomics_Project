@@ -2,7 +2,8 @@ NVCC = nvcc
 NVCC_FLAGS = 
 
 CPP_SOURCES = 	../c++/backtrack.cpp \
-				../c++/parseInput.cpp
+				../c++/parseInput.cpp \
+				../c++/timing.cpp
 				
 CU_SOURCES = $(filter-out $(CU_FILTER), $(wildcard *.cu))
 CU_HEADERS = $(wildcard *.h)
