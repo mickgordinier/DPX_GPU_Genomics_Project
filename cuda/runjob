@@ -14,4 +14,4 @@
 #SBATCH --output=/scratch/eecs570s001w25_class_root/eecs570s001w25_class/mickg/DPX_GPU_Genomics_Project/logs/%u/%x-%j.log
 #SBATCH --error=/scratch/eecs570s001w25_class_root/eecs570s001w25_class/mickg/DPX_GPU_Genomics_Project/logs/%u/error-%x-%j.log
 # COMMENT:The application(s) to execute along with its input arguments and options:
-./ANW -pairs /scratch/eecs570s001w25_class_root/eecs570s001w25_class/mickg/DPX_GPU_Genomics_Project/input-datasets/bsw/small/bandedSWA_SRR7733443_100k_input.txt
+./LNW2 -pairs /scratch/eecs570s001w25_class_root/eecs570s001w25_class/mickg/DPX_GPU_Genomics_Project/input-datasets/bsw/small/bandedSWA_SRR7733443_100k_input.txt
