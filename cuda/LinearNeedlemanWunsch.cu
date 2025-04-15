@@ -16,6 +16,103 @@
 
 */
 
+__global__ void 
+needleman_wunsch_kernel_warp_shuffle(
+    int * __restrict__ scoringMatrix,
+    direction * __restrict__ backtrackMatrix,
+    const char * __restrict__ queryString, const char * __restrict__ referenceString,
+    const int queryLength, const int referenceLength,
+    const int matchWeight, const int mismatchWeight, 
+    const int gapWeight)
+{
+    // We are only launching 1 block
+    // Thus, each thread will only have a unique threadID that differentiates the threads
+    const int tid = threadIdx.x;
+    const int laneIdx = tid & 0x1f;; // thread index within warp 
+    const int threadCount = blockDim.x;
+
+    const int numRows = queryLength + 1;
+    const int numCols = referenceLength + 1;
+
+
+    /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
+    // Used for when a thread has to iterate over more than one col/row
+    int elementIdx = tid;
+
+    // Initialize the top row
+    // Writing in DRAM burst for faster updating
+
+    while(elementIdx < numCols) {
+        scoringMatrix[elementIdx] = gapWeight*elementIdx;
+        backtrackMatrix[elementIdx] = QUERY_INSERTION;
+        elementIdx += threadCount;
+    }
+
+    // Initialize the left col
+    // NOT Writing in DRAM burst (slower)
+    elementIdx = tid;
+    while(elementIdx < numRows) {
+        scoringMatrix[elementIdx*numCols] = gapWeight*elementIdx;
+        backtrackMatrix[elementIdx*numCols] = QUERY_DELETION;
+        elementIdx += threadCount;
+    }
+
+    if (tid == 0) {
+        backtrackMatrix[0] = NONE;
+    }
+
+    /* --- (END) INITIALIZING THE SCORING MATRIX --- */
+
+    /* --- (BEGIN) POPULATING THE SCORING MATRIX -- */
+    
+    const int maxDiag = numRows + numCols;
+    int leftDiag = gapWeight*elementIdx, left = gapWeight*elementIdx, up = gapWeight*elementIdx;
+
+    for (int diag = 2; diag <= maxDiag; ++diag){
+        int r = laneIdx + 1;
+        int c = diag - laneIdx;
+        if (r < numRows && c > 0 && c < numCols){
+            char queryChar = queryString[r-1];
+            char referenceChar = referenceString[c-1];
+
+            direction cornerDirection = NONE;
+            bool pred;
+            bool isMatch = (queryChar == referenceChar);
+            cornerDirection = isMatch ? MATCH : MISMATCH;
+
+            int matchMismatchScore = leftDiag + isMatch ? matchWeight : mismatchWeight;
+            int queryDeletionScore = up + gapWeight;
+            int queryInsertionScore = left + gapWeight;
+
+            int largestScore;
+            largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
+            if (pred) cornerDirection = QUERY_DELETION;
+                    
+            largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
+            if (pred) cornerDirection = QUERY_INSERTION;
+
+            scoringMatrix[r * numCols + c] = largestScore;
+            backtrackMatrix[r * numCols + c] = cornerDirection;
+            
+            /* left value for thread n + 1 is thread n's largestScore (just calculated value)*/
+            left = __shfl_up_sync(0xffffffff, largestScore, 1);
+
+            /* left diag value for thread n + 1 is thread n's "top" value (previously calculated value) */
+            leftDiag = __shfl_up_sync(0xffffffff, largestScore, 1);
+
+            /* upper value for thread n + 1 is its largestScore (just calculated value) */
+            up = largestScore;
+
+            if (tid == 0){
+                leftDiag = gapWeight*elementIdx;
+                left = gapWeight*elementIdx;
+            }
+        }
+    }
+
+    /* --- (END) POPULATING THE SCORING MATRIX -- */
+}
+
 // NEEDLEMAN WUNSCH BASELINE KERNEL
 
 __global__ void 
@@ -269,7 +366,7 @@ int main(int argc, char *argv[]) {
             );
 
             // Need to launch kernel
-            needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
+            needleman_wunsch_kernel_warp_shuffle<<<1, BLOCK_SIZE>>>(
                 deviceScoringMatrix, deviceBacktrackMatrix,
                 deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
                 sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
