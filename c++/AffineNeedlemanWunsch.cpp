@@ -65,7 +65,38 @@ void AffineNeedlemanWunsch::print_matrix(){
     cout << "Matrix Dim: [ " << num_rows + 1 << " x " << num_cols + 1 << " ]\n\n";
 
     // Set the spacing for each element of the matrix
-    int min_width = 2;
+    int min_width = 4;
+
+    cout << "QUERY DELETION MATRIX\n";
+
+    // Print out reference str
+    cout << "    " << std::setw(min_width) << " " << " ";
+    for(size_t i = 0; i < reference_str.size(); i++){
+        cout << "  " << std::setw(min_width) << reference_str[i] << " ";
+    }
+    cout << "\n";
+
+    // Print rest of matrix
+    for(size_t i = 0; i < queryDeletionMemo.size(); i++){
+        if(i == 0){
+            cout << "  ";
+        }
+        else {
+            cout << query_str[i-1] << " ";
+        }
+        cout << "[";
+        for(size_t j = 0; j < queryDeletionMemo[i].size(); j++){
+            if(j != queryDeletionMemo[i].size() - 1){
+                cout << " " << std::setw(min_width) << queryDeletionMemo[i][j] << ", ";
+            }
+            else {
+                cout << " " << std::setw(min_width) << queryDeletionMemo[i][j];
+            }
+        } //end for
+        cout << "],\n";
+    } //end for
+
+    cout << "\n";
 
     cout << "SCORING MATRIX\n";
 
@@ -128,35 +159,6 @@ void AffineNeedlemanWunsch::print_matrix(){
     } //end for
     
     cout << "\n";
-
-    cout << "QUERY DELETION MATRIX\n";
-
-    // Print out reference str
-    cout << "    " << std::setw(min_width) << " " << " ";
-    for(size_t i = 0; i < reference_str.size(); i++){
-        cout << "  " << std::setw(min_width) << reference_str[i] << " ";
-    }
-    cout << "\n";
-
-    // Print rest of matrix
-    for(size_t i = 0; i < queryDeletionMemo.size(); i++){
-        if(i == 0){
-            cout << "  ";
-        }
-        else {
-            cout << query_str[i-1] << " ";
-        }
-        cout << "[";
-        for(size_t j = 0; j < queryDeletionMemo[i].size(); j++){
-            if(j != queryDeletionMemo[i].size() - 1){
-                cout << " " << std::setw(min_width) << queryDeletionMemo[i][j] << ", ";
-            }
-            else {
-                cout << " " << std::setw(min_width) << queryDeletionMemo[i][j];
-            }
-        } //end for
-        cout << "],\n";
-    } //end for
 
     cout << std::endl;
 
@@ -305,11 +307,6 @@ void AffineNeedlemanWunsch::backtrack(){
 
         else if (currentMatrix == INSERTION) {
 
-            referenceSequence = reference_str[currentMemoCol-1] + referenceSequence;
-            pairRelation = " " + pairRelation;
-            querySequence = "_" + querySequence;
-            --currentMemoCol;
-
             switch (queryInsertionBacktrack[currentMemoRow][currentMemoCol]) {
                 
                 // Meaning that we came from the scoring matrix
@@ -326,14 +323,15 @@ void AffineNeedlemanWunsch::backtrack(){
                     exit(1);
 
             } // end switch
+
+            referenceSequence = reference_str[currentMemoCol-1] + referenceSequence;
+            pairRelation = " " + pairRelation;
+            querySequence = "_" + querySequence;
+            --currentMemoCol;
+
         }  // end if in QUERY INSERTION matrix
 
         else if (currentMatrix == DELETION) {
-
-            referenceSequence = "_" + referenceSequence;
-            pairRelation = " " + pairRelation;
-            querySequence = query_str[currentMemoRow-1] + querySequence;
-            --currentMemoRow;
 
             switch (queryDeletionBacktrack[currentMemoRow][currentMemoCol]) {
                 
@@ -351,6 +349,12 @@ void AffineNeedlemanWunsch::backtrack(){
                     exit(1);
 
             } // end switch
+
+            referenceSequence = "_" + referenceSequence;
+            pairRelation = " " + pairRelation;
+            querySequence = query_str[currentMemoRow-1] + querySequence;
+            --currentMemoRow;
+            
         }  // end if in QUERY DELETION matrix
 
         else {
@@ -405,3 +409,12 @@ void AffineNeedlemanWunsch::align(){
 
 void AffineNeedlemanWunsch::print_results(){
 }
+
+
+// int main() {
+//     AffineNeedlemanWunsch ANW(
+//         "GGTGCGCAAATGCAGCCGGGCATGCAGGTATAAAACAACTTGTGGAGGACGGAGGAGCAGGGCAATTATGAGTGTTTTACCCTAAAAGTACGGTAGCGCGCGTGCATGGGGTATGAGTGCAAAACCGGGGGGGGGGGGGGGGGAAGCACTAGAGACAAAAGTAGAAAACAAAATTAATGCATAGAAAT", 
+//         "ACAGTCCAACACTA", 
+//         3, -1, -3, -1);
+//     ANW.align();
+// }

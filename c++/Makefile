@@ -1,5 +1,5 @@
 GCC = g++
-GCC_FLAGS = 
+GCC_FLAGS =
 
 INPUT_SMALL = ../input-datasets/bsw/small/bandedSWA_SRR7733443_100k_input.txt
 CPP_TARGET  = main.cpp
