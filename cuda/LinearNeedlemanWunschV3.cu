@@ -235,6 +235,7 @@ int main(int argc, char *argv[]) {
 
     // Start timer
     uint64_t start_time = start_timer();
+    uint64_t backtracking_time = 0;
     #ifdef TEST_ALL
         
         // Copy over the sequences
@@ -357,7 +358,9 @@ int main(int argc, char *argv[]) {
 
                 // Backtrack matrices
                 printf("%d | %d\n", i, hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
+                uint64_t start_backtrack = get_time();
                 backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
+                backtracking_time += get_time() - start_backtrack;
 
                 // Free data arrays
                 delete[] hostScoringMatrix;
@@ -510,7 +513,9 @@ int main(int argc, char *argv[]) {
 
         // Perform backtracking on host and print results
         printf("0 | %d\n", hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
+        uint64_t start_backtrack = get_time();
         backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
+        backtracking_time += get_time() - start_backtrack;
         
         // Free data arrays
         delete[] hostScoringMatrix;
@@ -519,6 +524,7 @@ int main(int argc, char *argv[]) {
 
     uint64_t elapsed_time = get_elapsed_time();
     printf("Elapsed time (usec): %lld\n", elapsed_time);
+    printf("Elapsed backtracking time (usec): %lld\n", backtracking_time);
 
     // Cleanup
     printf("Cleaning up\n");
