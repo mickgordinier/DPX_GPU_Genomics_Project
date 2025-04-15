@@ -8,7 +8,7 @@
 #define BATCH_SIZE 5
 
 // Defing this will test all of the sequences in the input file
-// #define TEST_ALL
+#define TEST_ALL
 
 /*
     THINGS TO CONSIDER FOR OPTIMIZATION
@@ -44,8 +44,8 @@ needleman_wunsch_kernel(
     const char *referenceString = allSequences + sequenceInfo.referenceIdx;
 
     // The matrices are of size (queryLength + 1) * (referenceLength + 1)
-    const int numRows = sequenceInfo.queryLength + 1;
-    const int numCols = sequenceInfo.referenceLength + 1;
+    const int numRows = sequenceInfo.querySize + 1;
+    const int numCols = sequenceInfo.referenceSize + 1;
 
     /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
 
@@ -258,17 +258,26 @@ int main(int argc, char *argv[]) {
             "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
         );
 
+
+        int **tempDeviceScoringMatrices = (int **)malloc(BATCH_SIZE * sizeof(int*));
+        directionMain **tempDeviceBacktrackMatrices = (directionMain **)malloc(BATCH_SIZE * sizeof(directionMain*));
+
+        int **deviceScoringMatrices;
+        directionMain **deviceBacktrackMatrices;
+
+        handleErrs(
+            cudaMalloc(&deviceScoringMatrices, BATCH_SIZE * sizeof(int*)),
+            "FAILED TO ALLOCATE MEMORY TO deviceScoringMatrices\n"
+        );
+
+        handleErrs(
+            cudaMalloc(&deviceBacktrackMatrices, BATCH_SIZE * sizeof(directionMain*)),
+            "FAILED TO ALLOCATE MEMORY TO deviceBacktrackMatrices\n"
+        );
+        
+
         // Run the kernel on every sequence
         for(size_t sequenceIdx = 0; sequenceIdx < fileInfo.numPairs; sequenceIdx+=BATCH_SIZE){
-
-            // char *referenceString = &sequences[sequenceIdxs[i].referenceIdx];
-            // char *queryString = &sequences[sequenceIdxs[i].queryIdx];
-
-            // int referenceLength = strlen(referenceString);
-            // int queryLength = strlen(queryString);
-
-            int **tempDeviceScoringMatrices = (int **)malloc(BATCH_SIZE * sizeof(int*));
-            directionMain **tempDeviceBacktrackMatrices = (directionMain **)malloc(BATCH_SIZE * sizeof(directionMain*));
 
             for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
                 
@@ -292,31 +301,15 @@ int main(int argc, char *argv[]) {
                 tempDeviceBacktrackMatrices[i-sequenceIdx] = deviceBacktrackMatrix;
             }
 
-            int **deviceScoringMatrices;
-            directionMain **deviceBacktrackMatrices;
-
-            handleErrs(
-                cudaMalloc(&deviceScoringMatrices, BATCH_SIZE * sizeof(int*)),
-                "FAILED TO ALLOCATE MEMORY TO deviceScoringMatrices\n"
-            );
-
             handleErrs(
                 cudaMemcpy(deviceScoringMatrices, tempDeviceScoringMatrices, BATCH_SIZE * sizeof(int*), cudaMemcpyHostToDevice),
                 "FAILED TO COPY MEMORY FOR deviceScoringMatrices\n"
             );
 
             handleErrs(
-                cudaMalloc(&deviceBacktrackMatrices, BATCH_SIZE * sizeof(directionMain*)),
-                "FAILED TO ALLOCATE MEMORY TO deviceBacktrackMatrices\n"
-            );
-
-            handleErrs(
                 cudaMemcpy(deviceBacktrackMatrices, tempDeviceBacktrackMatrices, BATCH_SIZE * sizeof(directionMain*), cudaMemcpyHostToDevice),
                 "FAILED TO COPY MEMORY FOR deviceBacktrackMatrices\n"
             );
-
-            free(tempDeviceScoringMatrices);
-            free(tempDeviceBacktrackMatrices);
 
             // Need to launch kernel
             needleman_wunsch_kernel<<<BATCH_SIZE, BLOCK_SIZE>>>(
@@ -332,34 +325,51 @@ int main(int argc, char *argv[]) {
                 "SYNCHRONIZATION FAILED\n"
             );
 
-            // Copy the matrices back over
-            int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
-            directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
+            for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
 
-            // Copy information back from device --> host
-            handleErrs(
-                cudaMemcpy(hostScoringMatrix, deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost),
-                "FAILED TO COPY SCORING MATRIX FROM DEVICE --> HOST\n"
-            );
-            
-            handleErrs(
-                cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
-                "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
-            );
+                const char *queryString = &sequences[allSequenceInfo[i].queryIdx];
+                const char *referenceString = &sequences[allSequenceInfo[i].referenceIdx];
 
-            cudaFree(deviceScoringMatrix);
-            cudaFree(deviceBacktrackMatrix);
+                const int queryLength = allSequenceInfo[i].querySize;
+                const int referenceLength = allSequenceInfo[i].referenceSize;
 
-            // Backtrack matrices
-            printf("%d | %d\n", i, hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
-            backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
+                // Copy the matrices back over
+                int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
+                directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
 
-            // Free data arrays
-            delete[] hostScoringMatrix;
-            delete[] hostBacktrackMatrix;
+                // Copy information back from device --> host
+                handleErrs(
+                    cudaMemcpy(hostScoringMatrix, tempDeviceScoringMatrices[i-sequenceIdx], (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost),
+                    "FAILED TO COPY SCORING MATRIX FROM DEVICE --> HOST\n"
+                );
+                
+                handleErrs(
+                    cudaMemcpy(hostBacktrackMatrix, tempDeviceBacktrackMatrices[i-sequenceIdx], (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
+                    "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
+                );
+
+                cudaFree(tempDeviceScoringMatrices[i-sequenceIdx]);
+                cudaFree(tempDeviceBacktrackMatrices[i-sequenceIdx]);
+
+
+                // Backtrack matrices
+                printf("%d | %d\n", i, hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
+                backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
+
+                // Free data arrays
+                delete[] hostScoringMatrix;
+                delete[] hostBacktrackMatrix;
+            }
         }
 
         cudaFree(deviceSequences);
+        cudaFree(deviceAllSequenceInfo);
+
+        free(tempDeviceScoringMatrices);
+        free(tempDeviceBacktrackMatrices);
+
+        cudaFree(deviceScoringMatrices);
+        cudaFree(deviceBacktrackMatrices);
     #else
 
         // Copy over the sequences
@@ -506,5 +516,5 @@ int main(int argc, char *argv[]) {
 
     // Cleanup
     printf("Cleaning up\n");
-    cleanupParsedFile(sequenceIdxs, sequences);
+    cleanupParsedFile(allSequenceInfo, sequences);
 }
