@@ -6,7 +6,7 @@ CPP_SOURCES = 	../c++/backtrack.cpp \
 				
 CU_SOURCES = $(filter-out $(CU_FILTER), $(wildcard *.cu))
 CU_HEADERS = $(wildcard *.h)
-CU_EXE = $(CU_SOURCES:.cu=) LNW
+CU_EXE = $(CU_SOURCES:.cu=) LNW LNWShuffle
 
 print_vars:
 	@echo "Source Files $(CU_SOURCES)"
@@ -17,6 +17,9 @@ test: test.cu
 	$(NVCC) -o test test.cu
 
 LNW: LinearNeedlemanWunsch.cu $(CPP_SOURCES)
+	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
+
+LNWShuffle: LinearNeedlemanWunschShuffle.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
 %: %.cu

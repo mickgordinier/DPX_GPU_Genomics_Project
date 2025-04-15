@@ -9,13 +9,6 @@
 // Defing this will test all of the sequences in the input file
 #define TEST_ALL
 
-/*
-    THINGS TO CONSIDER FOR OPTIMIZATION
-    1. Complete removal of the scoring matrix altogether (Use of warp shuffling and shared memory)
-    2. Using 16x2 DPX instructions to have a thread work on 2 cells concurrently
-
-*/
-
 __global__ void 
 needleman_wunsch_kernel_warp_shuffle(
     int * scoringMatrix,
@@ -29,13 +22,12 @@ needleman_wunsch_kernel_warp_shuffle(
     // Thus, each thread will only have a unique threadID that differentiates the threads
 
     const int tid = threadIdx.x;
-    const int laneIdx = tid & 0x1f;; // thread index within warp 
     const int threadCount = blockDim.x;
 
     const int numRows = queryLength + 1;
     const int numCols = referenceLength + 1;
 
-    extern __shared__ int warpEdgeScore[];  // used so thread 31 can hand off its val to t0 at the end of a stripe
+    extern __shared__ int warpEdgeScore[];
 
     /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
     // Used for when a thread has to iterate over more than one col/row
@@ -61,7 +53,6 @@ needleman_wunsch_kernel_warp_shuffle(
 
     if (tid == 0) {
         backtrackMatrix[0] = NONE;
-        // printf("query string: %s reference string: %s\n", queryString, referenceString);
     }
 
     /* --- (END) INITIALIZING THE SCORING MATRIX --- */
@@ -69,11 +60,13 @@ needleman_wunsch_kernel_warp_shuffle(
     /* --- (BEGIN) POPULATING THE SCORING MATRIX -- */
     int leftDiag = gapWeight*tid, left = gapWeight*(tid+1), up = gapWeight*(tid+1), tmp_left = left;
 
-    for (int stripeStart = 1; stripeStart < numRows; stripeStart+=32){
+    for (int stripeStart = 1; stripeStart < numRows; stripeStart+=threadCount){
+
         int row = stripeStart + tid;
 
         /* threads outside of bounds should abort */
-        if (row >= numRows) break;
+        if (row >= numRows) return;
+
         for (int col = 1; col < (numCols+numRows); ++col){
             int largestScore = 0;
             int adj_col = col - tid;
@@ -88,8 +81,8 @@ needleman_wunsch_kernel_warp_shuffle(
                 left = gapWeight*(row);
             }
 
-            if (stripeStart > 1 && tid == 0){
-                /* t0 neds to grab upper value & leftDiag from t31 */
+            /* for all but the first stripe, t0 must grab its diagonal and upper values from t31 */
+            if (stripeStart > 1 && tid == 0 && adj_col < numCols){
                 up = warpEdgeScore[adj_col];
                 leftDiag = (adj_col == 1) ? gapWeight*(row - 1) : warpEdgeScore[adj_col - 1];
             }
@@ -101,7 +94,6 @@ needleman_wunsch_kernel_warp_shuffle(
                 direction cornerDirection = NONE;
                 bool pred;
                 bool isMatch = (queryChar == referenceChar);
-                // printf("thread %d found isMatch %d for row %d col %d qChar %c to rChar %c; left %d leftDiag %d up %d\n", tid, isMatch, row, adj_col, queryChar, referenceChar, left, leftDiag, up);
                 cornerDirection = isMatch ? MATCH : MISMATCH;
     
                 int matchMismatchScore = isMatch ? leftDiag + matchWeight : leftDiag + mismatchWeight;
@@ -120,14 +112,10 @@ needleman_wunsch_kernel_warp_shuffle(
                 tmp_left = left;
                 left = largestScore;
 
+                /* last thread in warp stores its scores in shared memory for t0 to access */
                 if (tid == 31){
-                    // printf("tid %d populting warpEdgeScore as %d row %d col %d\n", tid, largestScore, row, adj_col);
                     warpEdgeScore[adj_col] = largestScore;
                 }
-            }
-
-            if (tid == 0){
-                // printf("tid %d | r %d c %d | pre-shuffle left %d | pre-shuffle leftDiag %d | pre-shuffle up %d\n", tid, row, adj_col, tmp_left, leftDiag, up);
             }
 
             /*  top value for thread n + 1 is thread n's largestScore (just calculated value)*/
@@ -135,156 +123,8 @@ needleman_wunsch_kernel_warp_shuffle(
 
             /* left diag value for thread n + 1 is thread n's left value (previously calculated value) */
             leftDiag = __shfl_up_sync(0xffffffff, tmp_left, 1);
-            if (tid == 0){
-                // printf("tid %d | r %d c %d | post-shuffle left %d | post-shuffle leftDiag %d | post-shuffle up %d\n", tid, row, adj_col, left, leftDiag, up);
-            }
         }
     }
-}
-
-// NEEDLEMAN WUNSCH BASELINE KERNEL
-
-__global__ void 
-needleman_wunsch_kernel(
-    int *scoringMatrix, direction *backtrackMatrix,
-    const char *queryString, const char *referenceString,
-    const int queryLength, const int referenceLength,
-    const int matchWeight, const int mismatchWeight, 
-    const int gapWeight)
-{
-    // We are only launching 1 block
-    // Thus, each thread will only have a unique threadID that differentiates the threads
-    const int tid = threadIdx.x;
-    const int threadCount = blockDim.x;
-
-    // The matrices are of size (queryLength + 1) * (referenceLength + 1)
-    const int numRows = queryLength + 1;
-    const int numCols = referenceLength + 1;
-
-    /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
-
-    // Used for when a thread has to iterate over more than one col/row
-    int elementIdx;
-
-    // Initialize the top row
-    // Writing in DRAM burst for faster updating
-    elementIdx = tid;
-    while(elementIdx < numCols) {
-        scoringMatrix[elementIdx] = gapWeight*elementIdx;
-        backtrackMatrix[elementIdx] = QUERY_INSERTION;
-        elementIdx += threadCount;
-    }
-
-    // Initialize the left col
-    // NOT Writing in DRAM burst (slower)
-    elementIdx = tid;
-    while(elementIdx < numRows) {
-        scoringMatrix[elementIdx*numCols] = gapWeight*elementIdx;
-        backtrackMatrix[elementIdx*numCols] = QUERY_DELETION;
-        elementIdx += threadCount;
-    }
-
-    if (tid == 0) {
-        backtrackMatrix[0] = NONE;
-    }
-
-    // Need to ensure that all threads in the block complete filling up all the edges
-    // Do not need to do syncthreads across each loop iteration as there is no dependencies
-    __syncthreads();
-
-    /* --- (END) INITIALIZING THE SCORING MATRIX --- */
-
-    /* --- (BEGIN) POPULATING THE SCORING MATRIX -- */
-
-    /*
-    relative cell indices
-    [00][01]
-    [10][11]
-    */
-
-    // Each thread needs to iterate through the loop to be able to make the __syncthreads() call
-    // All threads need to be able to reach the __syncthreads() call
-    const int differentRows = ((numRows - 1) / BLOCK_SIZE) + 1;
-
-    // Every thread gets a row and char
-    int rowIdx = tid + 1;
-    char queryChar = queryString[rowIdx - 1];
-
-    int cell00Idx;
-    int cell01Idx;
-    int cell10Idx;
-    int cell11Idx;
-
-    for (int rowLoopIdx = 0; rowLoopIdx < differentRows; ++rowLoopIdx) {
-
-        // If the thread in the warp is outside the matrix, wait for the other threads
-        if (rowIdx < numRows) {
-
-            // Each later thread must wait for the previous thread
-            int adjCol = 1 - tid;
-            
-            // Each thread must go through the whole row
-            // BUT, there is an adjustment that each thread must wait for
-            for (int colIdx = 1; colIdx < (numCols+numRows); ++colIdx) {
-
-                // Setup cell indices once a thread can start executing
-                if(adjCol == 1){
-                    cell00Idx = (rowIdx-1)*numCols + adjCol - 1;
-                    cell01Idx = (rowIdx-1)*numCols + adjCol;
-                    cell10Idx = rowIdx*numCols + adjCol - 1;
-                    cell11Idx = rowIdx*numCols + adjCol; 
-                } 
-
-                // Main cell updating
-                if((adjCol > 0) && (adjCol < numCols)){
-                    
-                    char referenceChar = referenceString[adjCol - 1];
-                    direction cornerDirection = NONE;
-                    bool pred;
-                    
-                    // Determine if match
-                    bool isMatch = (queryChar == referenceChar);
-                    cornerDirection = isMatch ? MATCH : MISMATCH;
-    
-                    // Get all the possible scores
-                    int matchMismatchScore = isMatch ? scoringMatrix[cell00Idx] + matchWeight : scoringMatrix[cell00Idx] + mismatchWeight;
-                    int queryDeletionScore = scoringMatrix[cell01Idx] + gapWeight;
-                    int queryInsertionScore = scoringMatrix[cell10Idx] + gapWeight;
-    
-                    // Find the largest of the 3 scores
-                    // Utilizing DPX instructions for updating
-                    // pred = (queryDeletionScore >= matchMismatchScore)
-                    int largestScore;
-                    largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
-                    if (pred) cornerDirection = QUERY_DELETION;
-                    
-                    largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
-                    if (pred) cornerDirection = QUERY_INSERTION;
-    
-                    // Update scoring matrix and incrementing pointers
-                    scoringMatrix[cell11Idx] = largestScore;
-                    backtrackMatrix[cell11Idx] = cornerDirection;
-                    cell00Idx += 1;
-                    cell01Idx += 1;
-                    cell10Idx += 1;
-                    cell11Idx += 1;
-                }
-
-                ++adjCol;
-
-            } // end 
-
-        } // end if
-
-        // All previous threads must finish before moving onto the next row
-        __syncthreads();
-            
-        rowIdx += BLOCK_SIZE;
-        queryChar = queryString[rowIdx - 1];
-
-    } // end for
-
-    /* --- (END) POPULATING THE SCORING MATRIX -- */
 }
 
 
@@ -395,7 +235,8 @@ int main(int argc, char *argv[]) {
             );
 
             // Need to launch kernel
-            int smem_size = 5*(referenceLength)*sizeof(int);
+            /* allocate enough shared memory to store 1 row of scores */
+            int smem_size = (referenceLength+1)*sizeof(int);
             needleman_wunsch_kernel_warp_shuffle<<<1, BLOCK_SIZE, smem_size>>>(
                 deviceScoringMatrix, deviceBacktrackMatrix,
                 deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
@@ -497,10 +338,11 @@ int main(int argc, char *argv[]) {
 
         // Need to launch sinular kernel
         // Launching a kernel with 1 block with threadCount threads to populate scoring matrix
-        needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
+        int smem_size = (referenceLength+1)*sizeof(int);
+        needleman_wunsch_kernel_warp_shuffle<<<1, BLOCK_SIZE, smem_size>>>(
             deviceScoringMatrix, deviceBacktrackMatrix,
-            deviceQueryString, deviceReferenceString, 
-            queryLength, referenceLength, 
+            deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
+            sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
             matchWeight, mismatchWeight, gapWeight
         );
 
