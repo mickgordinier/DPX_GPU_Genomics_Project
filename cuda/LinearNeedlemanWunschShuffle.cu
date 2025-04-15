@@ -270,12 +270,6 @@ int main(int argc, char *argv[]) {
 
             // Backtrack matrices
             printf("%d | %d\n", i, hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
-            // for (int r = 0; r < queryLength + 1; r++){
-            //     for (int c = 0; c < referenceLength + 1; c++){
-            //         printf("%4d ", hostScoringMatrix[r*(referenceLength+1) + c]);
-            //     }
-            //     printf("\n");
-            // }
             backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
 
             // Free data arrays
