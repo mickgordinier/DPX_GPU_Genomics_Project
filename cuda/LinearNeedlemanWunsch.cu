@@ -2,6 +2,7 @@
 #include <cstring> // Determining length of string
 #include "../c++/parseInput.h"
 #include "../c++/backtrack.h"
+#include "../c++/timing.h"
 
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
@@ -20,7 +21,7 @@
 
 __global__ void 
 needleman_wunsch_kernel(
-    int *scoringMatrix, direction *backtrackMatrix,
+    int *scoringMatrix, directionMain *backtrackMatrix,
     const char *queryString, const char *referenceString,
     const int queryLength, const int referenceLength,
     const int matchWeight, const int mismatchWeight, 
@@ -59,7 +60,7 @@ needleman_wunsch_kernel(
     }
 
     if (tid == 0) {
-        backtrackMatrix[0] = NONE;
+        backtrackMatrix[0] = NONE_MAIN;
     }
 
     // Need to ensure that all threads in the block complete filling up all the edges
@@ -113,7 +114,7 @@ needleman_wunsch_kernel(
                 if((adjCol > 0) && (adjCol < numCols)){
                     
                     char referenceChar = referenceString[adjCol - 1];
-                    direction cornerDirection = NONE;
+                    directionMain cornerDirection = NONE_MAIN;
                     bool pred;
                     
                     // Determine if match
@@ -231,6 +232,8 @@ int main(int argc, char *argv[]) {
     fileInfo = parseInput(pairFileName, sequenceIdxs, sequences);
     printf("Num Pairs: %d\n\n", fileInfo.numPairs);
 
+    // Start timer
+    uint64_t start_time = start_timer();
     #ifdef TEST_ALL
         
         // Copy over the sequences
@@ -256,7 +259,7 @@ int main(int argc, char *argv[]) {
             int queryLength = strlen(queryString);
 
             int *deviceScoringMatrix;
-            direction *deviceBacktrackMatrix;
+            directionMain *deviceBacktrackMatrix;
 
             handleErrs(
                 cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)),
@@ -264,7 +267,7 @@ int main(int argc, char *argv[]) {
             );
     
             handleErrs(
-                cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction)),
+                cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain)),
                 "FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n"
             );
 
@@ -284,7 +287,7 @@ int main(int argc, char *argv[]) {
 
             // Copy the matrices back over
             int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
-            direction *hostBacktrackMatrix = new direction[(referenceLength+1) * (queryLength+1)];
+            directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
 
             // Copy information back from device --> host
             handleErrs(
@@ -293,7 +296,7 @@ int main(int argc, char *argv[]) {
             );
             
             handleErrs(
-                cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost),
+                cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
                 "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
             );
 
@@ -328,7 +331,7 @@ int main(int argc, char *argv[]) {
         // Allocate device memory for matrices
         printf("[Allocating CUDA Memory]\n");
         int *deviceScoringMatrix;
-        direction *deviceBacktrackMatrix;
+        directionMain *deviceBacktrackMatrix;
         char *deviceReferenceString;
         char *deviceQueryString;
 
@@ -338,7 +341,7 @@ int main(int argc, char *argv[]) {
         );
 
         handleErrs(
-            cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction)),
+            cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain)),
             "FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n"
         );
 
@@ -381,7 +384,7 @@ int main(int argc, char *argv[]) {
         // Allow for matrices to come from device -> host
         // Free up device memory
         int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
-        direction *hostBacktrackMatrix = new direction[(referenceLength+1) * (queryLength+1)];
+        directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
 
         // Copy information back from device --> host
         handleErrs(
@@ -390,7 +393,7 @@ int main(int argc, char *argv[]) {
         );
         
         handleErrs(
-            cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost),
+            cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
             "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST"
         );
 
@@ -414,6 +417,9 @@ int main(int argc, char *argv[]) {
         delete[] hostScoringMatrix;
         delete[] hostBacktrackMatrix;
     #endif
+
+    uint64_t elapsed_time = get_elapsed_time();
+    printf("Elapsed time (usec): %lld\n", elapsed_time);
 
     // Cleanup
     printf("Cleaning up\n");

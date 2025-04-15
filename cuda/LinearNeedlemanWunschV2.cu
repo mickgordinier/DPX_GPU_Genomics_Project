@@ -2,6 +2,7 @@
 #include <cstring> // Determining length of string
 #include "../c++/parseInput.h"
 #include "../c++/backtrack.h"
+#include "../c++/timing.h"
 
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
@@ -220,6 +221,8 @@ int main(int argc, char *argv[]) {
     fileInfo = parseInput(pairFileName, sequenceIdxs, sequences);
     printf("Num Pairs: %d\n\n", fileInfo.numPairs);
 
+    // Start timer
+    uint64_t start_time = start_timer();
     #ifdef TEST_ALL
         
         // Copy over the sequences
@@ -403,6 +406,9 @@ int main(int argc, char *argv[]) {
         delete[] hostScoringMatrix;
         delete[] hostBacktrackMatrix;
     #endif
+
+    uint64_t elapsed_time = get_elapsed_time();
+    printf("Elapsed time (usec): %lld\n", elapsed_time);
 
     // Cleanup
     printf("Cleaning up\n");
