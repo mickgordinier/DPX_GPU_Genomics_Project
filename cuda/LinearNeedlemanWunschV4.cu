@@ -2,49 +2,40 @@
 #include <cstring> // Determining length of string
 #include "../c++/parseInput.h"
 #include "../c++/backtrack.h"
-#include "../c++/timing.h"
 
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
 
-// Defining this will test all of the sequences in the input file
+// Defing this will test all of the sequences in the input file
 #define TEST_ALL
 
-/*
-    THINGS TO CONSIDER FOR OPTIMIZATION
-    1. Complete removal of the scoring matrix altogether (Use of warp shuffling and shared memory)
-    2. Using 16x2 DPX instructions to have a thread work on 2 cells concurrently
-
-*/
-
-// NEEDLEMAN WUNSCH BASELINE KERNEL
-// SUPPORTS KERNELS WITH THREADS LESS THAN QUERY LENGTH
-
 __global__ void 
-needleman_wunsch_kernel(
-    int *scoringMatrix, directionMain *backtrackMatrix,
-    const char *queryString, const char *referenceString,
+needleman_wunsch_kernel_warp_shuffle(
+    int * scoringMatrix,
+    direction * __restrict__ backtrackMatrix,
+    const char * __restrict__ queryString, const char * __restrict__ referenceString,
     const int queryLength, const int referenceLength,
     const int matchWeight, const int mismatchWeight, 
     const int gapWeight)
 {
     // We are only launching 1 block
     // Thus, each thread will only have a unique threadID that differentiates the threads
+
     const int tid = threadIdx.x;
     const int threadCount = blockDim.x;
 
-    // The matrices are of size (queryLength + 1) * (referenceLength + 1)
     const int numRows = queryLength + 1;
     const int numCols = referenceLength + 1;
 
-    /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
+    extern __shared__ int warpEdgeScore[];
 
+    /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
     // Used for when a thread has to iterate over more than one col/row
-    int elementIdx;
+    int elementIdx = tid;
 
     // Initialize the top row
     // Writing in DRAM burst for faster updating
-    elementIdx = tid;
+
     while(elementIdx < numCols) {
         scoringMatrix[elementIdx] = gapWeight*elementIdx;
         backtrackMatrix[elementIdx] = QUERY_INSERTION;
@@ -61,95 +52,79 @@ needleman_wunsch_kernel(
     }
 
     if (tid == 0) {
-        backtrackMatrix[0] = NONE_MAIN;
+        backtrackMatrix[0] = NONE;
     }
-
-    // Need to ensure that all threads in the block complete filling up all the edges
-    // Do not need to do syncthreads across each loop iteration as there is no dependencies
-    __syncthreads();
 
     /* --- (END) INITIALIZING THE SCORING MATRIX --- */
 
     /* --- (BEGIN) POPULATING THE SCORING MATRIX -- */
+    int leftDiag = gapWeight*tid, left = gapWeight*(tid+1), up = gapWeight*(tid+1), tmp_left = left;
 
-    /*
-    relative cell indices
-    [00][01]
-    [10][11]
-    */
+    for (int stripeStart = 1; stripeStart < numRows; stripeStart+=threadCount){
 
-    // Each thread has to do ((numRows-1) / BLOCK_SIZE) different rows
-    // During a row pass, each thread will be doing numCols amount of work
-    // There is an additional numRows lag amount of waiting for staggering the threads
-    const int numIterations = (numCols * ((numRows / BLOCK_SIZE) + 1)) + numRows;
+        int row = stripeStart + tid;
 
-    // Every thread gets a row and char
-    int rowIdx = tid + 1;
-    char queryChar = queryString[rowIdx - 1];
+        /* threads outside of bounds should abort */
+        if (row >= numRows) return;
 
-    // Each later thread must wait for the previous thread
-    int adjCol = 1 - tid;
+        for (int col = 1; col < (numCols+numRows); ++col){
+            int largestScore = 0;
+            int adj_col = col - tid;
 
-    // Setup cell indices once a thread can start executing
-    int cell00Idx = (rowIdx-1)*numCols;
-    int cell01Idx = (rowIdx-1)*numCols + 1;
-    int cell10Idx = rowIdx*numCols;
-    int cell11Idx = rowIdx*numCols + 1; 
+            if (row == 1){
+                leftDiag = gapWeight*(adj_col - 1);
+                up = gapWeight*(adj_col);
+            }
 
-    for (int iter = 0; iter < numIterations; ++iter) {
-        
-        if ((rowIdx < numRows) && (adjCol > 0)) {
-            
-            char referenceChar = referenceString[adjCol - 1];
-            directionMain cornerDirection = NONE_MAIN;
-            bool pred;
-            
-            // Determine if match
-            bool isMatch = (queryChar == referenceChar);
-            cornerDirection = isMatch ? MATCH : MISMATCH;
+            if (adj_col == 1){
+                leftDiag = gapWeight*(row - 1);
+                left = gapWeight*(row);
+            }
 
-            // Get all the possible scores
-            int matchMismatchScore = isMatch ? scoringMatrix[cell00Idx] + matchWeight : scoringMatrix[cell00Idx] + mismatchWeight;
-            int queryDeletionScore = scoringMatrix[cell01Idx] + gapWeight;
-            int queryInsertionScore = scoringMatrix[cell10Idx] + gapWeight;
+            /* for all but the first stripe, t0 must grab its diagonal and upper values from t31 */
+            if (stripeStart > 1 && tid == 0 && adj_col < numCols){
+                up = warpEdgeScore[adj_col];
+                leftDiag = (adj_col == 1) ? gapWeight*(row - 1) : warpEdgeScore[adj_col - 1];
+            }
 
-            // Find the largest of the 3 scores
-            // Utilizing DPX instructions for updating
-            // pred = (queryDeletionScore >= matchMismatchScore)
-            int largestScore;
-            largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
-            if (pred) cornerDirection = QUERY_DELETION;
-            
-            largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
-            if (pred) cornerDirection = QUERY_INSERTION;
+            if (adj_col > 0 && adj_col < numCols){
+                char queryChar = queryString[row-1];
+                char referenceChar = referenceString[adj_col-1];
+    
+                direction cornerDirection = NONE;
+                bool pred;
+                bool isMatch = (queryChar == referenceChar);
+                cornerDirection = isMatch ? MATCH : MISMATCH;
+    
+                int matchMismatchScore = isMatch ? leftDiag + matchWeight : leftDiag + mismatchWeight;
+                int queryDeletionScore = up + gapWeight;
+                int queryInsertionScore = left + gapWeight;
+    
+                largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
+                if (pred) cornerDirection = QUERY_DELETION;
+                        
+                largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
+                if (pred) cornerDirection = QUERY_INSERTION;
 
-            // Update scoring matrix and incrementing pointers
-            scoringMatrix[cell11Idx] = largestScore;
-            backtrackMatrix[cell11Idx] = cornerDirection;
-            cell00Idx += 1;
-            cell01Idx += 1;
-            cell10Idx += 1;
-            cell11Idx += 1;
+                scoringMatrix[row * numCols + adj_col] = largestScore;
+                backtrackMatrix[row * numCols + adj_col] = cornerDirection;
 
+                tmp_left = left;
+                left = largestScore;
+
+                /* last thread in warp stores its scores in shared memory for t0 to access */
+                if (tid == 31){
+                    warpEdgeScore[adj_col] = largestScore;
+                }
+            }
+
+            /*  top value for thread n + 1 is thread n's largestScore (just calculated value)*/
+            up = __shfl_up_sync(0xffffffff, largestScore, 1);
+
+            /* left diag value for thread n + 1 is thread n's left value (previously calculated value) */
+            leftDiag = __shfl_up_sync(0xffffffff, tmp_left, 1);
         }
-        
-        if (adjCol == numCols-1) {
-            rowIdx += 32;
-            queryChar = queryString[rowIdx - 1];
-            adjCol = min(0, numCols-33);
-            
-            cell00Idx = (rowIdx-1)*numCols;
-            cell01Idx = (rowIdx-1)*numCols + 1;
-            cell10Idx = rowIdx*numCols;
-            cell11Idx = rowIdx*numCols + 1; 
-        }
-
-        ++adjCol;
     }
-
-    __syncthreads();
-
-    /* --- (END) POPULATING THE SCORING MATRIX -- */
 }
 
 
@@ -197,7 +172,7 @@ int main(int argc, char *argv[]) {
     int matchWeight     = 3;
     int mismatchWeight  = -1;
     int gapWeight       = -2;
-    // int threadCount     = 32;
+    int threadCount     = 32;
     if(strcmp(argv[1], "-pairs") == 0) {
         pairFileName = argv[2];
     }
@@ -210,9 +185,9 @@ int main(int argc, char *argv[]) {
     if(argc > 7 && strcmp(argv[7], "-gap") == 0) {
         gapWeight = atoi(argv[8]);
     }
-    // if(argc > 9 && strcmp(argv[9], "-threads-per-alignment") == 0) {
-    //     threadCount = atoi(argv[10]);
-    // }
+    if(argc > 9 && strcmp(argv[9], "-threads-per-alignment") == 0) {
+        threadCount = atoi(argv[10]);
+    }
 
     // Parse input file
     printf("Parsing input file: %s\n", pairFileName);
@@ -222,17 +197,11 @@ int main(int argc, char *argv[]) {
     fileInfo = parseInput(pairFileName, sequenceIdxs, sequences);
     printf("Num Pairs: %d\n\n", fileInfo.numPairs);
 
-    // Start timer
-    uint64_t kernel_time = 0;
-    uint64_t memalloc_time = 0;
-    uint64_t backtracking_time = 0;
-    uint64_t start_time = start_timer();
     #ifdef TEST_ALL
         
         // Copy over the sequences
         char* deviceSequences;
 
-        uint64_t start_memalloc = get_time();
         handleErrs(
             cudaMalloc(&deviceSequences, (fileInfo.numBytes) * sizeof(char)),
             "FAILED TO ALLOCATE MEMORY FOR ALL SEQUENCES\n"
@@ -242,7 +211,6 @@ int main(int argc, char *argv[]) {
             cudaMemcpy(deviceSequences, sequences, (fileInfo.numBytes) * sizeof(char), cudaMemcpyHostToDevice),
             "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
         );
-        memalloc_time += get_time() - start_memalloc;
 
         // Run the kernel on every sequence
         for(size_t i = 0; i < fileInfo.numPairs; i++){
@@ -254,23 +222,22 @@ int main(int argc, char *argv[]) {
             int queryLength = strlen(queryString);
 
             int *deviceScoringMatrix;
-            directionMain *deviceBacktrackMatrix;
+            direction *deviceBacktrackMatrix;
 
-            start_memalloc = get_time();
             handleErrs(
                 cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)),
                 "FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n"
             );
     
             handleErrs(
-                cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain)),
+                cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction)),
                 "FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n"
             );
-            memalloc_time += get_time() - start_memalloc;
 
-            uint64_t start_kernel = get_time();
             // Need to launch kernel
-            needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
+            /* allocate enough shared memory to store 1 row of scores */
+            int smem_size = (referenceLength+1)*sizeof(int);
+            needleman_wunsch_kernel_warp_shuffle<<<1, BLOCK_SIZE, smem_size>>>(
                 deviceScoringMatrix, deviceBacktrackMatrix,
                 deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
                 sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
@@ -282,33 +249,28 @@ int main(int argc, char *argv[]) {
                 cudaDeviceSynchronize(),
                 "SYNCHRONIZATION FAILED\n"
             );
-            kernel_time += get_time() - start_kernel;
 
-            start_memalloc = get_time();
             // Copy the matrices back over
             int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
-            directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
+            direction *hostBacktrackMatrix = new direction[(referenceLength+1) * (queryLength+1)];
 
             // Copy information back from device --> host
             handleErrs(
                 cudaMemcpy(hostScoringMatrix, deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost),
-                "FAILED TO COPY SCORING MATRIX FROM DEVICE --> HOST\n"
+                "FAILED TO COPY SCORING MATRIX FROM DEVICE --> HOST"
             );
             
             handleErrs(
-                cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
-                "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
+                cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost),
+                "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST"
             );
 
             cudaFree(deviceScoringMatrix);
             cudaFree(deviceBacktrackMatrix);
-            memalloc_time += get_time() - start_memalloc;
 
             // Backtrack matrices
             printf("%d | %d\n", i, hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
-            uint64_t start_backtrack = get_time();
             backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
-            backtracking_time += get_time() - start_backtrack;
 
             // Free data arrays
             delete[] hostScoringMatrix;
@@ -334,7 +296,7 @@ int main(int argc, char *argv[]) {
         // Allocate device memory for matrices
         printf("[Allocating CUDA Memory]\n");
         int *deviceScoringMatrix;
-        directionMain *deviceBacktrackMatrix;
+        direction *deviceBacktrackMatrix;
         char *deviceReferenceString;
         char *deviceQueryString;
 
@@ -344,7 +306,7 @@ int main(int argc, char *argv[]) {
         );
 
         handleErrs(
-            cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain)),
+            cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction)),
             "FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n"
         );
 
@@ -370,10 +332,11 @@ int main(int argc, char *argv[]) {
 
         // Need to launch sinular kernel
         // Launching a kernel with 1 block with threadCount threads to populate scoring matrix
-        needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
+        int smem_size = (referenceLength+1)*sizeof(int);
+        needleman_wunsch_kernel_warp_shuffle<<<1, BLOCK_SIZE, smem_size>>>(
             deviceScoringMatrix, deviceBacktrackMatrix,
-            deviceQueryString, deviceReferenceString, 
-            queryLength, referenceLength, 
+            deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
+            sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
             matchWeight, mismatchWeight, gapWeight
         );
 
@@ -387,7 +350,7 @@ int main(int argc, char *argv[]) {
         // Allow for matrices to come from device -> host
         // Free up device memory
         int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
-        directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
+        direction *hostBacktrackMatrix = new direction[(referenceLength+1) * (queryLength+1)];
 
         // Copy information back from device --> host
         handleErrs(
@@ -396,7 +359,7 @@ int main(int argc, char *argv[]) {
         );
         
         handleErrs(
-            cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
+            cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(direction), cudaMemcpyDeviceToHost),
             "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST"
         );
 
@@ -420,13 +383,6 @@ int main(int argc, char *argv[]) {
         delete[] hostScoringMatrix;
         delete[] hostBacktrackMatrix;
     #endif
-
-    uint64_t elapsed_time = get_elapsed_time();
-    printf("Elapsed time (usec): %lld\n", elapsed_time);
-    printf("Elapsed kernel time (usec): %lld\n", kernel_time);
-    printf("Elapsed backtracking time (usec): %lld\n", backtracking_time);
-    printf("Elapsed memallocing time (usec): %lld\n", memalloc_time);
-    printf("Elapsed time sum (usec): %lld\n",kernel_time + backtracking_time + memalloc_time);
 
     // Cleanup
     printf("Cleaning up\n");
