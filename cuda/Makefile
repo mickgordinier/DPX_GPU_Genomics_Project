@@ -8,7 +8,7 @@ CPP_SOURCES = 	../c++/backtrack.cpp \
 				
 CU_SOURCES = $(filter-out $(CU_FILTER), $(wildcard *.cu))
 CU_HEADERS = $(wildcard *.h)
-CU_EXE = $(CU_SOURCES:.cu=) LNW ANW LNW2 LNW3
+CU_EXE = $(CU_SOURCES:.cu=) LNW ANW LNW2 LNW3 LNW4 LNW6
 
 print_vars:
 	@echo "Source Files $(CU_SOURCES)"
@@ -28,6 +28,9 @@ LNW3: LinearNeedlemanWunschV3.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
 LNW4: LinearNeedlemanWunschV4.cu $(CPP_SOURCES)
+	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
+
+LNW6: LinearNeedlemanWunschV6.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
 ANW: AffineNeedlemanWunsch.cu $(CPP_SOURCES)
