@@ -48,8 +48,8 @@ class BandedSmithWaterman: public SequenceAligner{
 
 
     public:
-    BandedSmithWaterman(const std::string input_reference, const std::string input_query, const int match_weight, const int mismatch_weight, const int gap_weight) : 
-        SequenceAligner(input_reference, input_query), 
+    BandedSmithWaterman(const std::string input_reference, const std::string input_query, const int match_weight, const int mismatch_weight, const int gap_weight, const int pairNum) : 
+        SequenceAligner(input_reference, input_query, pairNum), 
         match_weight(match_weight), 
         mismatch_weight(mismatch_weight), 
         gap_weight(gap_weight) {

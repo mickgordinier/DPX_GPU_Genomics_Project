@@ -229,6 +229,7 @@ void BandedSmithWaterman::print_results(){
         cout << "[Sequence Pairing(s)]\n";
         cout << "====================\n";
     #else
+        printf("%d | ", pairNum);
         cout << max_score << "\n";
     #endif
 
