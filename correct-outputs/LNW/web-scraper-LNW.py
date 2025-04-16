@@ -45,7 +45,7 @@ def readOutputSequences(filePath):
   for i in range(0, len(lines), 4):
     scoreOutputs.append(lines[i].split("|")[1].strip())
     referenceOutputs.append(convert_to_dna(lines[i + 1].strip()))
-    alignmentOutputs.append(lines[i + 2].strip())
+    alignmentOutputs.append(lines[i + 2].replace('\n' , '')) # don't strip this
     queryOutputs.append(convert_to_dna(lines[i + 3].strip()))
     
   return scoreOutputs, referenceOutputs, alignmentOutputs, queryOutputs
@@ -95,7 +95,7 @@ def scrape_needleman_wunsch(page, reference, query):
         text2 = cell2.text_content(timeout=5000) or ""
         text3 = cell3.text_content(timeout=5000) or ""
 
-        results_output.append([text1.strip(), text2.strip(), text3.strip()])
+        results_output.append([text1.strip(), text2.replace('\n' , ''), text3.strip()])
       
       except Exception as e:
           print(f"Row {i+1} - Error retrieving data: {e}")
@@ -123,7 +123,7 @@ def main():
   with sync_playwright() as p:
     
     # Launch Chromium browser
-    browser = p.chromium.launch(headless=False)  # Set headless=True for invisible browser
+    browser = p.chromium.launch(headless=True)  # Set headless=True for invisible browser
     page = browser.new_page()
 
     # Open the target URL
@@ -197,9 +197,7 @@ def main():
     # Close browser
     browser.close()
     
-  #end with
-  
-  
+  #end with  
 
 if __name__ == "__main__":
   
