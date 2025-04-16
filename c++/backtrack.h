@@ -38,6 +38,8 @@ void printBacktrackMatrix(const directionMain *memo, const int referenceLength, 
 
 void backtrackNW(const directionMain *backtrackMemo, const char *referenceString, const int referenceLength, const char *queryString,  const int queryLength);
 
+void backtrackMultiNW(const directionMain *backtrackMemo, const char *referenceString, const int referenceLength, const char *queryString, const int queryLength, const int pairNum, const int score);
+
 void backtrackANW(
     const directionMain *scoringBacktrack, 
     const directionIndel *queryInsertionBacktrack,

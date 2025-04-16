@@ -130,6 +130,9 @@ void backtrackMultiNW(const directionMain *backtrackMemo, const char *referenceS
             // end if query insertion
             
             default:
+                printLock();
+                printf("Exiting(1) backtrack: %d\n", pairNum);
+                printUnlock();
                 exit(1);
             // end if upper gap
 
