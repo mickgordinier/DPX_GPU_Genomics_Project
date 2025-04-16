@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include  "printLock.h"
 
 // Enumerated predecessor directions for backtracking
 // enum direction {
