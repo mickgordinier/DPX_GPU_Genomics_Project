@@ -3,7 +3,8 @@ NVCC_FLAGS =
 
 CPP_SOURCES = 	../c++/backtrack.cpp \
 				../c++/parseInput.cpp \
-				../c++/timing.cpp
+				../c++/timing.cpp \
+				../c++/printLock.cpp
 				
 CU_SOURCES = $(filter-out $(CU_FILTER), $(wildcard *.cu))
 CU_HEADERS = $(wildcard *.h)
@@ -24,6 +25,9 @@ LNW2: LinearNeedlemanWunschV2.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
 LNW3: LinearNeedlemanWunschV3.cu $(CPP_SOURCES)
+	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
+
+LNW4: LinearNeedlemanWunschV4.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
 ANW: AffineNeedlemanWunsch.cu $(CPP_SOURCES)
