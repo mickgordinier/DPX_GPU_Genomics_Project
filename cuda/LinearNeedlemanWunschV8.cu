@@ -237,19 +237,6 @@ needleman_wunsch_kernel(
             } // end switch
         } // end while
 
-        // printf("TEMP Sequence Idx: %d, Reference: %s\n", sequenceIdx, backtrackStringsRet + referenceStrIdx);
-        // printf("TEMP Sequence Idx: %d, Alignment: %s\n", sequenceIdx, backtrackStringsRet + alignmentStrIdx);
-        // printf("TEMP Sequence Idx: %d, Query    : %s\n", sequenceIdx, backtrackStringsRet + queryStrIdx);
-
-        // int spacing = referenceStrIdx - ((stringLengthMax * 3) * blockIdx.x);
-
-        // for (int i = 0; i < spacing; ++i) {
-        //     backtrackStringsRet[--referenceStrIdx] = '\0';
-        //     backtrackStringsRet[--alignmentStrIdx] = '\0';
-        //     backtrackStringsRet[--queryStrIdx] = '\0';
-        // }
-
-
     }
 }
 
