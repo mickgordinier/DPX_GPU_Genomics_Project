@@ -30,6 +30,9 @@ LNW3: LinearNeedlemanWunschV3.cu $(CPP_SOURCES)
 LNW4: LinearNeedlemanWunschV4.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
+LNW8: LinearNeedlemanWunschV8.cu $(CPP_SOURCES)
+	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
+
 ANW: AffineNeedlemanWunsch.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 

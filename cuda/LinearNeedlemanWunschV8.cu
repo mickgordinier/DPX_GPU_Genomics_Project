@@ -27,15 +27,15 @@ __global__ void
 needleman_wunsch_kernel(
     int *similarityScores,
     directionMain **batchBacktrackMatrices,
+    char *backtrackStringsRet, 
     const char *allSequences, const seqPair *allSequenceInfo,
     const int matchWeight, const int mismatchWeight, const int gapWeight,
-    const int startingSequenceIdx)
+    const int startingSequenceIdx, const int stringLengthMax)
 {
 
-    const int threadCount = blockDim.x;
     const int tid = threadIdx.x;
 
-    extern __shared__ int warpEdgeScore[];
+    extern __shared__ int warpEdgeScore[]; 
 
     // We are launching multiple blocks, each of a warp of threads
     // Each block handles their own sequence alignment
@@ -63,7 +63,7 @@ needleman_wunsch_kernel(
     elementIdx = tid;
     while(elementIdx < numCols) {
         backtrackMatrix[elementIdx] = QUERY_INSERTION;
-        elementIdx += threadCount;
+        elementIdx += BLOCK_SIZE;
     }
 
     // Initialize the left col
@@ -71,7 +71,7 @@ needleman_wunsch_kernel(
     elementIdx = tid;
     while(elementIdx < numRows) {
         backtrackMatrix[elementIdx*numCols] = QUERY_DELETION;
-        elementIdx += threadCount;
+        elementIdx += BLOCK_SIZE;
     }
 
     if (tid == 0) {
@@ -98,7 +98,7 @@ needleman_wunsch_kernel(
     int tmp_left = left;
 
     // Going through all of the rows each thread has to do
-    for (int stripeStart = 1; stripeStart < numRows; stripeStart+=threadCount){
+    for (int stripeStart = 1; stripeStart < numRows; stripeStart+=BLOCK_SIZE){
 
         int row = stripeStart + tid;
         int largestScore;
@@ -169,6 +169,86 @@ needleman_wunsch_kernel(
     }
 
     /* --- (END) POPULATING THE SCORING MATRIX -- */
+
+    /* --- (BEGIN) DETERMINING BACKTRACKING -- */
+
+    // Starting at the end
+    if (tid == 0) {
+
+        int referenceStrIdx = (stringLengthMax * 3) * blockIdx.x + (stringLengthMax-1);
+        int alignmentStrIdx = referenceStrIdx + stringLengthMax;
+        int queryStrIdx = alignmentStrIdx + stringLengthMax;
+
+        backtrackStringsRet[referenceStrIdx] = '\0';
+        backtrackStringsRet[alignmentStrIdx] = '\0';
+        backtrackStringsRet[queryStrIdx] = '\0';
+
+        int currentMemoRow = numRows - 1;
+        int currentMemoCol = numCols - 1;
+
+        while ((currentMemoRow != 0) || (currentMemoCol != 0)) {
+
+            referenceStrIdx--;
+            alignmentStrIdx--;
+            queryStrIdx--;
+            
+            // Determine the current cell's predecessor
+            switch (backtrackMatrix[(currentMemoRow * numCols) + currentMemoCol]) {
+                
+                case MATCH:
+                    backtrackStringsRet[referenceStrIdx] = referenceString[currentMemoCol-1];
+                    backtrackStringsRet[alignmentStrIdx] = '*';
+                    backtrackStringsRet[queryStrIdx] = queryString[currentMemoRow-1];
+                    --currentMemoRow;
+                    --currentMemoCol;
+                    break;
+                // end if match
+
+                case MISMATCH: 
+                    backtrackStringsRet[referenceStrIdx] = referenceString[currentMemoCol-1];
+                    backtrackStringsRet[alignmentStrIdx] = '|';
+                    backtrackStringsRet[queryStrIdx] = queryString[currentMemoRow-1];
+                    --currentMemoRow;
+                    --currentMemoCol;
+                    break;
+                // end if mismatch
+                
+                case QUERY_DELETION:
+                    backtrackStringsRet[referenceStrIdx] = '_';
+                    backtrackStringsRet[alignmentStrIdx] = ' ';
+                    backtrackStringsRet[queryStrIdx] = queryString[currentMemoRow-1];
+                    --currentMemoRow;
+                    break;
+                // end if query deletion
+                
+                case QUERY_INSERTION:
+                    backtrackStringsRet[referenceStrIdx] = referenceString[currentMemoCol-1];
+                    backtrackStringsRet[alignmentStrIdx] = ' ';
+                    backtrackStringsRet[queryStrIdx] = '_';
+                    --currentMemoCol;
+                    break;
+                // end if query insertion
+                
+                default:
+                    printf("ERROR\n");
+                    return;
+                // end if upper gap
+
+            } // end switch
+        } // end while
+
+        // printf("TEMP Sequence Idx: %d, Reference: %s\n", sequenceIdx, backtrackStringsRet + referenceStrIdx);
+        // printf("TEMP Sequence Idx: %d, Alignment: %s\n", sequenceIdx, backtrackStringsRet + alignmentStrIdx);
+        // printf("TEMP Sequence Idx: %d, Query    : %s\n", sequenceIdx, backtrackStringsRet + queryStrIdx);
+
+        int spacing = referenceStrIdx - ((stringLengthMax * 3) * blockIdx.x);
+
+        for (int i = 0; i < spacing; ++i) {
+            backtrackStringsRet[--referenceStrIdx] = '\0';
+            backtrackStringsRet[--alignmentStrIdx] = '\0';
+            backtrackStringsRet[--queryStrIdx] = '\0';
+        }
+    }
 }
 
 
@@ -288,11 +368,12 @@ int main(int argc, char *argv[]) {
         memalloc_time += get_time() - start_memalloc;
 
         // Run the kernel on every sequence
-        for(size_t sequenceIdx = 0; sequenceIdx < fileInfo.numPairs; sequenceIdx+=BATCH_SIZE){
+        for(size_t sequenceIdx = 0; sequenceIdx < 2000; sequenceIdx+=BATCH_SIZE){
             
             start_memalloc = get_time();
 
             int largestReferenceLength = 0;
+            int largestQueryLength = 0;
 
             for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
                 
@@ -300,6 +381,7 @@ int main(int argc, char *argv[]) {
                 const int referenceLength = allSequenceInfo[i].referenceSize;
 
                 largestReferenceLength = max(largestReferenceLength, referenceLength);
+                largestQueryLength = max(largestQueryLength, referenceLength);
                 
                 directionMain *deviceBacktrackMatrix;
         
@@ -315,6 +397,16 @@ int main(int argc, char *argv[]) {
                 cudaMemcpy(deviceBacktrackMatrices, tempDeviceBacktrackMatrices, BATCH_SIZE * sizeof(directionMain*), cudaMemcpyHostToDevice),
                 "FAILED TO COPY MEMORY FOR deviceBacktrackMatrices\n"
             );
+
+            int stringLengthMax = (largestReferenceLength+largestQueryLength+1);
+
+            char *deviceBacktrackStringRet;
+        
+            handleErrs(
+                cudaMalloc(&deviceBacktrackStringRet, (stringLengthMax * 3) * BATCH_SIZE * sizeof(char)),
+                "FAILED TO ALLOCATE MEMORY TO BACKTRACKING STRINGS\n"
+            );
+
             memalloc_time += get_time() - start_memalloc;
 
             uint64_t start_kernel = get_time();
@@ -323,9 +415,10 @@ int main(int argc, char *argv[]) {
             needleman_wunsch_kernel<<<BATCH_SIZE, BLOCK_SIZE, smem_size>>>(
                 deviceSimilarityScores,
                 deviceBacktrackMatrices,
+                deviceBacktrackStringRet,
                 deviceSequences, deviceAllSequenceInfo,
                 matchWeight, mismatchWeight, gapWeight,
-                sequenceIdx
+                sequenceIdx, stringLengthMax
             );
             
             // Wait for kernel to finish
@@ -342,41 +435,60 @@ int main(int argc, char *argv[]) {
                 "FAILED TO COPY SIMILARITY SCORES FROM DEVICE --> HOST\n"
             );
 
+            char *hostBacktrackingStringRet = (char *)malloc(stringLengthMax * (BATCH_SIZE) * sizeof(char));
+
+            handleErrs(
+                cudaMemcpy(hostBacktrackingStringRet, deviceBacktrackStringRet, (stringLengthMax * 3) * BATCH_SIZE * sizeof(char), cudaMemcpyDeviceToHost),
+                "FAILED TO COPY SIMILARITY SCORES FROM DEVICE --> HOST\n"
+            );
+
             memalloc_time += get_time() - start_memalloc;
 
             for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
                 
-                start_memalloc = get_time();
-                const char *queryString = &sequences[allSequenceInfo[i].queryIdx];
-                const char *referenceString = &sequences[allSequenceInfo[i].referenceIdx];
+                // start_memalloc = get_time();
+                // const char *queryString = &sequences[allSequenceInfo[i].queryIdx];
+                // const char *referenceString = &sequences[allSequenceInfo[i].referenceIdx];
 
-                const int queryLength = allSequenceInfo[i].querySize;
-                const int referenceLength = allSequenceInfo[i].referenceSize;
+                // const int queryLength = allSequenceInfo[i].querySize;
+                // const int referenceLength = allSequenceInfo[i].referenceSize;
 
                 // Copy the matrices back over
-                directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
+                // directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
 
                 // Copy information back from device --> host
-                handleErrs(
-                    cudaMemcpy(hostBacktrackMatrix, tempDeviceBacktrackMatrices[i-sequenceIdx], (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
-                    "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
-                );
+                // handleErrs(
+                //     cudaMemcpy(hostBacktrackMatrix, tempDeviceBacktrackMatrices[i-sequenceIdx], (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
+                //     "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
+                // );
 
-                // cudaFree(tempDeviceScoringMatrices[i-sequenceIdx]);
-                cudaFree(tempDeviceBacktrackMatrices[i-sequenceIdx]);
-                memalloc_time += get_time() - start_memalloc;
+                // // cudaFree(tempDeviceScoringMatrices[i-sequenceIdx]);
+                // cudaFree(tempDeviceBacktrackMatrices[i-sequenceIdx]);
+                // memalloc_time += get_time() - start_memalloc;
 
 
                 // Backtrack matrices
                 printf("%d | %d\n", i, hostSimilarityScores[i-sequenceIdx]);
-                uint64_t start_backtrack = get_time();
-                backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
-                backtracking_time += get_time() - start_backtrack;
+                // uint64_t start_backtrack = get_time();
+                // backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
+                // backtracking_time += get_time() - start_backtrack;
 
                 // Free data arrays
                 // delete[] hostScoringMatrix;
-                delete[] hostBacktrackMatrix;
+                // delete[] hostBacktrackMatrix;
+
+                int spacing = ((stringLengthMax * 3) * (i-sequenceIdx));
+
+                while (hostBacktrackingStringRet[((stringLengthMax * 3) * (i-sequenceIdx)) + spacing] == '\0') {
+                    ++spacing;
+                }
+
+                printf("Sequence Idx: %d, Reference: %s\n", i, hostBacktrackingStringRet + ((stringLengthMax * 3) * (i-sequenceIdx)) + spacing);
+                printf("Sequence Idx: %d, Alignment: %s\n", i, hostBacktrackingStringRet + ((stringLengthMax * 3) * (i-sequenceIdx)) + stringLengthMax + spacing);
+                printf("Sequence Idx: %d, Query    : %s\n", i, hostBacktrackingStringRet + ((stringLengthMax * 3) * (i-sequenceIdx)) + stringLengthMax + stringLengthMax + spacing);
             }
+
+            free(hostBacktrackingStringRet);
         }
 
         cudaFree(deviceSequences);
@@ -481,7 +593,7 @@ int main(int argc, char *argv[]) {
         );
 
         // Need to launch sinular kernel
-        // Launching a kernel with 1 block with threadCount threads to populate scoring matrix
+        // Launching a kernel with 1 block with BLOCK_SIZE threads to populate scoring matrix
         needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
             deviceScoringMatrix, deviceBacktrackMatrix,
             deviceQueryString, deviceReferenceString, 
