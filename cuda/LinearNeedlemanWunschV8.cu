@@ -241,13 +241,15 @@ needleman_wunsch_kernel(
         // printf("TEMP Sequence Idx: %d, Alignment: %s\n", sequenceIdx, backtrackStringsRet + alignmentStrIdx);
         // printf("TEMP Sequence Idx: %d, Query    : %s\n", sequenceIdx, backtrackStringsRet + queryStrIdx);
 
-        int spacing = referenceStrIdx - ((stringLengthMax * 3) * blockIdx.x);
+        // int spacing = referenceStrIdx - ((stringLengthMax * 3) * blockIdx.x);
 
-        for (int i = 0; i < spacing; ++i) {
-            backtrackStringsRet[--referenceStrIdx] = '\0';
-            backtrackStringsRet[--alignmentStrIdx] = '\0';
-            backtrackStringsRet[--queryStrIdx] = '\0';
-        }
+        // for (int i = 0; i < spacing; ++i) {
+        //     backtrackStringsRet[--referenceStrIdx] = '\0';
+        //     backtrackStringsRet[--alignmentStrIdx] = '\0';
+        //     backtrackStringsRet[--queryStrIdx] = '\0';
+        // }
+
+
     }
 }
 
@@ -354,7 +356,7 @@ int main(int argc, char *argv[]) {
         int *deviceSimilarityScores;
         directionMain **deviceBacktrackMatrices;
 
-        int *hostSimilarityScores = new int[BATCH_SIZE];
+        int *hostSimilarityScores = (int*)malloc(BATCH_SIZE * sizeof(int));
 
         handleErrs(
             cudaMalloc(&deviceSimilarityScores, BATCH_SIZE * sizeof(int)),
@@ -369,19 +371,17 @@ int main(int argc, char *argv[]) {
 
         // Run the kernel on every sequence
         for(size_t sequenceIdx = 0; sequenceIdx < 2000; sequenceIdx+=BATCH_SIZE){
-            
             start_memalloc = get_time();
 
             int largestReferenceLength = 0;
             int largestQueryLength = 0;
 
             for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
-                
                 const int queryLength = allSequenceInfo[i].querySize;
                 const int referenceLength = allSequenceInfo[i].referenceSize;
 
                 largestReferenceLength = max(largestReferenceLength, referenceLength);
-                largestQueryLength = max(largestQueryLength, referenceLength);
+                largestQueryLength = max(largestQueryLength, queryLength);
                 
                 directionMain *deviceBacktrackMatrix;
         
@@ -435,57 +435,29 @@ int main(int argc, char *argv[]) {
                 "FAILED TO COPY SIMILARITY SCORES FROM DEVICE --> HOST\n"
             );
 
-            char *hostBacktrackingStringRet = (char *)malloc(stringLengthMax * (BATCH_SIZE) * sizeof(char));
+            char *hostBacktrackingStringRet = (char *)malloc(stringLengthMax * 3 * BATCH_SIZE * sizeof(char));
 
             handleErrs(
                 cudaMemcpy(hostBacktrackingStringRet, deviceBacktrackStringRet, (stringLengthMax * 3) * BATCH_SIZE * sizeof(char), cudaMemcpyDeviceToHost),
-                "FAILED TO COPY SIMILARITY SCORES FROM DEVICE --> HOST\n"
+                "FAILED TO COPY BACKTRACKING STRING FROM DEVICE --> HOST\n"
             );
 
             memalloc_time += get_time() - start_memalloc;
 
             for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
-                
-                // start_memalloc = get_time();
-                // const char *queryString = &sequences[allSequenceInfo[i].queryIdx];
-                // const char *referenceString = &sequences[allSequenceInfo[i].referenceIdx];
-
-                // const int queryLength = allSequenceInfo[i].querySize;
-                // const int referenceLength = allSequenceInfo[i].referenceSize;
-
-                // Copy the matrices back over
-                // directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
-
-                // Copy information back from device --> host
-                // handleErrs(
-                //     cudaMemcpy(hostBacktrackMatrix, tempDeviceBacktrackMatrices[i-sequenceIdx], (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
-                //     "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
-                // );
-
-                // // cudaFree(tempDeviceScoringMatrices[i-sequenceIdx]);
-                // cudaFree(tempDeviceBacktrackMatrices[i-sequenceIdx]);
-                // memalloc_time += get_time() - start_memalloc;
-
-
+            
                 // Backtrack matrices
                 printf("%d | %d\n", i, hostSimilarityScores[i-sequenceIdx]);
-                // uint64_t start_backtrack = get_time();
-                // backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
-                // backtracking_time += get_time() - start_backtrack;
-
-                // Free data arrays
-                // delete[] hostScoringMatrix;
-                // delete[] hostBacktrackMatrix;
 
                 int spacing = ((stringLengthMax * 3) * (i-sequenceIdx));
-
-                while (hostBacktrackingStringRet[((stringLengthMax * 3) * (i-sequenceIdx)) + spacing] == '\0') {
-                    ++spacing;
+                
+                while (hostBacktrackingStringRet[spacing] == '\0'){
+                    spacing++;
                 }
 
-                printf("Sequence Idx: %d, Reference: %s\n", i, hostBacktrackingStringRet + ((stringLengthMax * 3) * (i-sequenceIdx)) + spacing);
-                printf("Sequence Idx: %d, Alignment: %s\n", i, hostBacktrackingStringRet + ((stringLengthMax * 3) * (i-sequenceIdx)) + stringLengthMax + spacing);
-                printf("Sequence Idx: %d, Query    : %s\n", i, hostBacktrackingStringRet + ((stringLengthMax * 3) * (i-sequenceIdx)) + stringLengthMax + stringLengthMax + spacing);
+                printf("Sequence Idx: %d, Reference: %s\n", i, hostBacktrackingStringRet + spacing);
+                printf("Sequence Idx: %d, Alignment: %s\n", i, hostBacktrackingStringRet + stringLengthMax + spacing);
+                printf("Sequence Idx: %d, Query    : %s\n", i, hostBacktrackingStringRet + stringLengthMax + stringLengthMax + spacing);
             }
 
             free(hostBacktrackingStringRet);
@@ -606,6 +578,11 @@ int main(int argc, char *argv[]) {
             cudaDeviceSynchronize(),
             "SYNCHRONIZATION FAILED\n"
         );
+
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA ERROR after kernel launch: %s\n", cudaGetErrorString(err));
+        }
 
         // Allocate host memory for matrices
         // Allow for matrices to come from device -> host
