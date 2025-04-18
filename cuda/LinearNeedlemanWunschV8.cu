@@ -257,22 +257,22 @@ handleErrs(
 int main(int argc, char *argv[]) {
 
     // Print some cuda details
-    printf("[Cuda Details]\n");
-    int deviceCount;
-    cudaError_t err = cudaGetDeviceCount(&deviceCount);
-    if (err != cudaSuccess) {
-        printf("FAILED TO GET DEVICE COUNT\n");
-        printf("CUDA test kernel error: %s\n", cudaGetErrorString(err));
-        exit(1);
-    }
+    // printf("[Cuda Details]\n");
+    // int deviceCount;
+    // cudaError_t err = cudaGetDeviceCount(&deviceCount);
+    // if (err != cudaSuccess) {
+    //     printf("FAILED TO GET DEVICE COUNT\n");
+    //     printf("CUDA test kernel error: %s\n", cudaGetErrorString(err));
+    //     exit(1);
+    // }
 
-    printf("Device count: %d\n", deviceCount);
-    int device = 0;
-    cudaDeviceProp deviceProp;
-    cudaGetDeviceProperties(&deviceProp, device);
-    printf("Device %d has compute capability %d.%d.\n",
-           device, deviceProp.major, deviceProp.minor);
-    printf("Concurrent kernels?: %d\n\n", deviceProp.concurrentKernels);
+    // printf("Device count: %d\n", deviceCount);
+    // int device = 0;
+    // cudaDeviceProp deviceProp;
+    // cudaGetDeviceProperties(&deviceProp, device);
+    // printf("Device %d has compute capability %d.%d.\n",
+    //        device, deviceProp.major, deviceProp.minor);
+    // printf("Concurrent kernels?: %d\n\n", deviceProp.concurrentKernels);
 
     // Check that YOU use it correctly
     if (argc < 2) {
@@ -299,12 +299,12 @@ int main(int argc, char *argv[]) {
     }
 
     // Parse input file
-    printf("Parsing input file: %s\n", pairFileName);
+    // printf("Parsing input file: %s\n", pairFileName);
     inputInfo fileInfo;
     seqPair* allSequenceInfo;
     char* sequences;
     fileInfo = parseInput(pairFileName, allSequenceInfo, sequences);
-    printf("Num Pairs: %d\n\n", fileInfo.numPairs);
+    // printf("Num Pairs: %d\n\n", fileInfo.numPairs);
 
     // Start timer
     uint64_t kernel_time = 0;
@@ -357,7 +357,7 @@ int main(int argc, char *argv[]) {
         memalloc_time += get_time() - start_memalloc;
 
         // Run the kernel on every sequence
-        for(size_t sequenceIdx = 0; sequenceIdx < fileInfo.numPairs; sequenceIdx+=BATCH_SIZE){
+        for(size_t sequenceIdx = 0; sequenceIdx < 1000000; sequenceIdx+=BATCH_SIZE){
             start_memalloc = get_time();
 
             int largestReferenceLength = 0;
@@ -442,9 +442,12 @@ int main(int argc, char *argv[]) {
                     spacing++;
                 }
 
-                printf("Sequence Idx: %d, Reference: %s\n", i, hostBacktrackingStringRet + spacing);
-                printf("Sequence Idx: %d, Alignment: %s\n", i, hostBacktrackingStringRet + stringLengthMax + spacing);
-                printf("Sequence Idx: %d, Query    : %s\n", i, hostBacktrackingStringRet + stringLengthMax + stringLengthMax + spacing);
+                // printf("Sequence Idx: %d, Reference: %s\n", i, hostBacktrackingStringRet + spacing);
+                // printf("Sequence Idx: %d, Alignment: %s\n", i, hostBacktrackingStringRet + stringLengthMax + spacing);
+                // printf("Sequence Idx: %d, Query    : %s\n", i, hostBacktrackingStringRet + stringLengthMax + stringLengthMax + spacing);
+                printf("%s\n", hostBacktrackingStringRet + spacing);
+                printf("%s\n", hostBacktrackingStringRet + stringLengthMax + spacing);
+                printf("%s\n", hostBacktrackingStringRet + stringLengthMax + stringLengthMax + spacing);
             }
 
             free(hostBacktrackingStringRet);
