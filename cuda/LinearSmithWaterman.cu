@@ -10,24 +10,17 @@
 // Defining this will test all of the sequences in the input file
 #define TEST_ALL
 
-/*
-    THINGS TO CONSIDER FOR OPTIMIZATION
-    1. Complete removal of the scoring matrix altogether (Use of warp shuffling and shared memory)
-    2. Using 16x2 DPX instructions to have a thread work on 2 cells concurrently
-
-*/
-
-// NEEDLEMAN WUNSCH BASELINE KERNEL
+// SMITH WATERMAN BASELINE KERNEL
 
 __global__ void 
-needleman_wunsch_kernel(
+smith_waterman_kernel(
     int *scoringMatrix, directionMain *backtrackMatrix,
     const char *queryString, const char *referenceString,
     const int queryLength, const int referenceLength,
     const int matchWeight, const int mismatchWeight, 
     const int gapWeight)
 {
-    // We are only launching 1 block
+        // We are only launching 1 block
     // Thus, each thread will only have a unique threadID that differentiates the threads
     const int tid = threadIdx.x;
     const int threadCount = blockDim.x;
@@ -45,8 +38,8 @@ needleman_wunsch_kernel(
     // Writing in DRAM burst for faster updating
     elementIdx = tid;
     while(elementIdx < numCols) {
-        scoringMatrix[elementIdx] = gapWeight*elementIdx;
-        backtrackMatrix[elementIdx] = QUERY_INSERTION;
+        scoringMatrix[elementIdx] = 0;
+        backtrackMatrix[elementIdx] = NONE_MAIN; // null insertions?
         elementIdx += threadCount;
     }
 
@@ -54,8 +47,8 @@ needleman_wunsch_kernel(
     // NOT Writing in DRAM burst (slower)
     elementIdx = tid;
     while(elementIdx < numRows) {
-        scoringMatrix[elementIdx*numCols] = gapWeight*elementIdx;
-        backtrackMatrix[elementIdx*numCols] = QUERY_DELETION;
+        scoringMatrix[elementIdx*numCols] = 0;
+        backtrackMatrix[elementIdx*numCols] = NONE_MAIN; // null insertions?
         elementIdx += threadCount;
     }
 
@@ -107,16 +100,16 @@ needleman_wunsch_kernel(
                     cell00Idx = (rowIdx-1)*numCols + adjCol - 1;
                     cell01Idx = (rowIdx-1)*numCols + adjCol;
                     cell10Idx = rowIdx*numCols + adjCol - 1;
-                    cell11Idx = rowIdx*numCols + adjCol;
+                    cell11Idx = rowIdx*numCols + adjCol; 
                 }
 
                 // Main cell updating
                 if((adjCol > 0) && (adjCol < numCols)){
-                    
+
                     char referenceChar = referenceString[adjCol - 1];
                     directionMain cornerDirection = NONE_MAIN;
                     bool pred;
-                    
+
                     // Determine if match
                     bool isMatch = (queryChar == referenceChar);
                     cornerDirection = isMatch ? MATCH : MISMATCH;
@@ -132,10 +125,13 @@ needleman_wunsch_kernel(
                     int largestScore;
                     largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
                     if (pred) cornerDirection = QUERY_DELETION;
-                    
+
                     largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
                     if (pred) cornerDirection = QUERY_INSERTION;
-    
+
+                    largestScore = __vibmax_s32(0, largestScore, &pred); // max(0, largestScore)
+                    if (pred) cornerDirection = NONE_MAIN;
+
                     // Update scoring matrix and incrementing pointers
                     scoringMatrix[cell11Idx] = largestScore;
                     backtrackMatrix[cell11Idx] = cornerDirection;
@@ -153,7 +149,7 @@ needleman_wunsch_kernel(
 
         // All previous threads must finish before moving onto the next row
         __syncthreads();
-
+        
         rowIdx += BLOCK_SIZE;
         queryChar = queryString[rowIdx - 1];
 
@@ -161,7 +157,6 @@ needleman_wunsch_kernel(
 
     /* --- (END) POPULATING THE SCORING MATRIX -- */
 }
-
 
 void
 handleErrs(
@@ -174,7 +169,6 @@ handleErrs(
         exit(1);
     }
 }
-
 
 int main(int argc, char *argv[]) {
 
@@ -198,10 +192,10 @@ int main(int argc, char *argv[]) {
 
     // Check that YOU use it correctly
     if (argc < 2) {
-		fprintf(stderr, "usage: main -pairs <InSeqFile> -match <matchWeight> -mismatch <mismatchWeight> -gap <gapWeight> \n");
-		exit(EXIT_FAILURE);
+        fprintf(stderr, "usage: main -pairs <InSeqFile> -match <matchWeight> -mismatch <mismatchWeight> -gap <gapWeight> \n");
+        exit(EXIT_FAILURE);
     }
-	
+
     // Get args
     char *pairFileName;
     int matchWeight     = 3;
@@ -235,7 +229,6 @@ int main(int argc, char *argv[]) {
     // Start timer
     uint64_t start_time = start_timer();
     #ifdef TEST_ALL
-        
         // Copy over the sequences
         char* deviceSequences;
 
@@ -248,10 +241,8 @@ int main(int argc, char *argv[]) {
             cudaMemcpy(deviceSequences, sequences, (fileInfo.numBytes) * sizeof(char), cudaMemcpyHostToDevice),
             "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
         );
-
         // Run the kernel on every sequence
         for(size_t i = 0; i < fileInfo.numPairs; i++){
-
             char *referenceString = &sequences[sequenceIdxs[i].referenceIdx];
             char *queryString = &sequences[sequenceIdxs[i].queryIdx];
 
@@ -272,7 +263,7 @@ int main(int argc, char *argv[]) {
             );
 
             // Need to launch kernel
-            needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
+            smith_waterman_kernel<<<1, BLOCK_SIZE>>>(
                 deviceScoringMatrix, deviceBacktrackMatrix,
                 deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
                 sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
@@ -305,7 +296,14 @@ int main(int argc, char *argv[]) {
 
             // Backtrack matrices
             printf("%d | %d\n", i, hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
-            backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
+            
+            
+            //backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
+            
+            
+            // need changes to backtrackNW^^
+
+
 
             // Free data arrays
             delete[] hostScoringMatrix;
@@ -367,7 +365,7 @@ int main(int argc, char *argv[]) {
 
         // Need to launch singular kernel
         // Launching a kernel with 1 block with threadCount threads to populate scoring matrix
-        needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
+        smith_waterman_kernel<<<1, BLOCK_SIZE>>>(
             deviceScoringMatrix, deviceBacktrackMatrix,
             deviceQueryString, deviceReferenceString, 
             queryLength, referenceLength, 
