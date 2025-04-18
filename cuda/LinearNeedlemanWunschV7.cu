@@ -3,20 +3,69 @@
 #include "../c++/parseInput.h"
 #include "../c++/backtrack.h"
 #include "../c++/timing.h"
+#include "pthread.h"
 
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
-#define BATCH_SIZE 100
+#define BATCH_SIZE 1000
 
+//#define BACKTRACK_BATCH_SIZE 10
+//#define BACKTRACK_BATCH_SIZE 20
+//#define BACKTRACK_BATCH_SIZE 100
+#define BACKTRACK_BATCH_SIZE 100
+
+//#define DEBUG
 // Defining this will test all of the sequences in the input file
 #define TEST_ALL
 
+int numMemCpyDirections = 0;
 /*
     THINGS TO CONSIDER FOR OPTIMIZATION
     1. Complete removal of the scoring matrix altogether (Use of warp shuffling and shared memory)
     2. Using 16x2 DPX instructions to have a thread work on 2 cells concurrently
 
 */
+
+struct thread_arg{
+    int threadID;
+    int pairNum;
+    directionMain ** backtrackingMemos;
+    char* sequences;
+    seqPair* allSequenceInfo;
+    int *scores;
+};
+
+void* threadBacktrackLNW(void *tmp){
+	struct thread_arg* threadData = (struct thread_arg*)tmp;
+    int threadID                = threadData->threadID;
+    int pairNum                 = threadData->pairNum;
+    directionMain ** backtrackingMemos       = threadData->backtrackingMemos;
+    char* sequences             = threadData->sequences;
+    seqPair* allSequenceInfo    = threadData->allSequenceInfo;
+    int* scores                 = threadData->scores;
+    
+    #ifdef DEBUG
+    printLock();
+    printf("Thread ID: %d\n", threadID);
+    fflush(stdout);
+    printUnlock();
+    #endif
+    
+    for(int i = 0; i < BACKTRACK_BATCH_SIZE; i++){
+    
+        const char *reference = &sequences[allSequenceInfo[pairNum + i].referenceIdx];
+        const char *query = &sequences[allSequenceInfo[pairNum + i].queryIdx];
+        
+        const int referenceLength = allSequenceInfo[pairNum + i].referenceSize;
+        const int queryLength = allSequenceInfo[pairNum + i].querySize;
+
+        // Backtrrack
+        backtrackMultiNW(backtrackingMemos[(threadID*BACKTRACK_BATCH_SIZE) + i], reference, referenceLength, query, queryLength, pairNum + i, scores[(threadID*BACKTRACK_BATCH_SIZE) + i]);
+        
+        // Free a matrix
+        delete[] backtrackingMemos[(threadID*BACKTRACK_BATCH_SIZE) + i];
+    }
+}
 
 // NEEDLEMAN WUNSCH BASELINE KERNEL
 // SUPPORTS KERNELS WITH THREADS LESS THAN QUERY LENGTH
@@ -269,54 +318,63 @@ int main(int argc, char *argv[]) {
             "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
         );
 
-        directionMain **tempDeviceBacktrackMatrices = (directionMain **)malloc(BATCH_SIZE * sizeof(directionMain*));
-
+        
+        // Allocate space for similarity scores and backtracking matrices
+        int *hostSimilarityScores       = new int[BATCH_SIZE];
         int *deviceSimilarityScores;
+        directionMain **tempDeviceBacktrackMatrices = new directionMain *[BATCH_SIZE];
         directionMain **deviceBacktrackMatrices;
-
-        int *hostSimilarityScores = new int[BATCH_SIZE];
-
+        
         handleErrs(
             cudaMalloc(&deviceSimilarityScores, BATCH_SIZE * sizeof(int)),
             "FAILED TO ALLOCATE MEMORY TO deviceBacktrackMatrices\n"
         );
-
+        
         handleErrs(
             cudaMalloc(&deviceBacktrackMatrices, BATCH_SIZE * sizeof(directionMain*)),
             "FAILED TO ALLOCATE MEMORY TO deviceBacktrackMatrices\n"
         );
-        memalloc_time += get_time() - start_memalloc;
 
-        // Run the kernel on every sequence
+        // Allocate space for threads and threadArgs
+        pthread_t           *threads    = new pthread_t[BATCH_SIZE/BACKTRACK_BATCH_SIZE];
+        struct thread_arg   *threadArgs = new thread_arg[BATCH_SIZE/BACKTRACK_BATCH_SIZE];
+        directionMain      **hostBacktrackingMemos = new directionMain *[BATCH_SIZE];
+
+        memalloc_time += get_time() - start_memalloc;
+        
+        // Main for loop to run the kernel on groups of [BATCH_SIZE] sequences
         for(size_t sequenceIdx = 0; sequenceIdx < fileInfo.numPairs; sequenceIdx+=BATCH_SIZE){
             
             start_memalloc = get_time();
-
+            
             int largestReferenceLength = 0;
 
+            // Allocate space for all of the backtracking matrices
             for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
                 
                 const int queryLength = allSequenceInfo[i].querySize;
                 const int referenceLength = allSequenceInfo[i].referenceSize;
-
+                
                 largestReferenceLength = max(largestReferenceLength, referenceLength);
                 
                 directionMain *deviceBacktrackMatrix;
-        
+                
                 handleErrs(
                     cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain)),
                     "FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n"
                 );
-
+                
+                // Add new backtracking matrix to our array of matrices
                 tempDeviceBacktrackMatrices[i-sequenceIdx] = deviceBacktrackMatrix;
             }
-
+            
+            // Copy over the pointers to our array of matrices
             handleErrs(
                 cudaMemcpy(deviceBacktrackMatrices, tempDeviceBacktrackMatrices, BATCH_SIZE * sizeof(directionMain*), cudaMemcpyHostToDevice),
                 "FAILED TO COPY MEMORY FOR deviceBacktrackMatrices\n"
             );
             memalloc_time += get_time() - start_memalloc;
-
+            
             uint64_t start_kernel = get_time();
             // Need to launch kernel
             int smem_size = (largestReferenceLength + 1) * sizeof(int);
@@ -334,213 +392,127 @@ int main(int argc, char *argv[]) {
                 "SYNCHRONIZATION FAILED\n"
             );
             kernel_time += get_time() - start_kernel;
-
+            
+            // Get matrix scores and backtracking matrices back
             start_memalloc = get_time();
-
             handleErrs(
                 cudaMemcpy(hostSimilarityScores, deviceSimilarityScores, BATCH_SIZE * sizeof(int), cudaMemcpyDeviceToHost),
                 "FAILED TO COPY SIMILARITY SCORES FROM DEVICE --> HOST\n"
             );
+            // // Copy backtracking matrices back from cuda into hostBacktrackingMemos
+            // for(int pairIdx = sequenceIdx; pairIdx < sequenceIdx + BATCH_SIZE; pairIdx++){
+            //     const char *queryString = &sequences[allSequenceInfo[pairIdx].queryIdx];
+            //     const char *referenceString = &sequences[allSequenceInfo[pairIdx].referenceIdx];
 
+            //     const int queryLength = allSequenceInfo[pairIdx].querySize;
+            //     const int referenceLength = allSequenceInfo[pairIdx].referenceSize;
+
+            //     // Get backtack matrix
+            //     directionMain *backtrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
+            //     handleErrs(
+            //             cudaMemcpy(backtrackMatrix, tempDeviceBacktrackMatrices[pairIdx-sequenceIdx], (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
+            //         "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
+            //     );
+            //     cudaFree(tempDeviceBacktrackMatrices[pairIdx-sequenceIdx]);
+
+            //     hostBacktrackingMemos[pairIdx - sequenceIdx] = backtrackMatrix;
+            // }
             memalloc_time += get_time() - start_memalloc;
-
-            for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
+            
+            // Make batch of threads
+            for (int pairBaseIdx = sequenceIdx; pairBaseIdx < sequenceIdx+BATCH_SIZE; pairBaseIdx += BACKTRACK_BATCH_SIZE) {
+                // Init thread arguments
+                int threadID =  (pairBaseIdx - sequenceIdx) / BACKTRACK_BATCH_SIZE;
+                struct thread_arg threadArg;
+                threadArg.threadID        = threadID;
+                threadArg.pairNum         = pairBaseIdx;
+                threadArg.sequences       = sequences;
+                threadArg.allSequenceInfo = allSequenceInfo;
                 
-                start_memalloc = get_time();
-                const char *queryString = &sequences[allSequenceInfo[i].queryIdx];
-                const char *referenceString = &sequences[allSequenceInfo[i].referenceIdx];
+                // Point the thread to the scoring array
+                threadArg.scores = hostSimilarityScores;
 
-                const int queryLength = allSequenceInfo[i].querySize;
-                const int referenceLength = allSequenceInfo[i].referenceSize;
+                // Point thread to the backtracking matrices
+                threadArg.backtrackingMemos = hostBacktrackingMemos;
+                
+                threadArgs[threadID] = threadArg;
 
-                // Copy the matrices back over
-                directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
+                // // Copy backtracking matrices back from cuda into hostBacktrackingMemos
+                //start_memalloc = get_time();
+                for(int pairIdx = pairBaseIdx; pairIdx < pairBaseIdx + BACKTRACK_BATCH_SIZE; pairIdx++){
+                    const char *queryString = &sequences[allSequenceInfo[pairIdx].queryIdx];
+                    const char *referenceString = &sequences[allSequenceInfo[pairIdx].referenceIdx];
 
-                // Copy information back from device --> host
-                handleErrs(
-                    cudaMemcpy(hostBacktrackMatrix, tempDeviceBacktrackMatrices[i-sequenceIdx], (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
-                    "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
-                );
+                    const int queryLength = allSequenceInfo[pairIdx].querySize;
+                    const int referenceLength = allSequenceInfo[pairIdx].referenceSize;
 
-                // cudaFree(tempDeviceScoringMatrices[i-sequenceIdx]);
-                cudaFree(tempDeviceBacktrackMatrices[i-sequenceIdx]);
-                memalloc_time += get_time() - start_memalloc;
+                    // Get backtack matrix
+                    directionMain *backtrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
+                    handleErrs(
+                            cudaMemcpy(backtrackMatrix, tempDeviceBacktrackMatrices[pairIdx-sequenceIdx], (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
+                        "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
+                    );
+                    cudaFree(tempDeviceBacktrackMatrices[pairIdx-sequenceIdx]);
 
+                    hostBacktrackingMemos[pairIdx - sequenceIdx] = backtrackMatrix;
+                    numMemCpyDirections += 1;
+                }
+                //memalloc_time += get_time() - start_memalloc;
 
-                // Backtrack matrices
-                printf("%d | %d\n", i, hostSimilarityScores[i-sequenceIdx]);
+                // Create backtracking threads
                 uint64_t start_backtrack = get_time();
-                backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
+                #ifdef DEBUG
+                    printf("Creating threadID: %d\n", threadID);
+                #endif
+                int ret = pthread_create(&threads[threadID], NULL, threadBacktrackLNW, (void*) &threadArgs[threadID]);
+                if(ret != 0){
+                    printf("Failed to create threadID: %d", threadID);
+                    exit(1);
+                }
                 backtracking_time += get_time() - start_backtrack;
-
-                // Free data arrays
-                // delete[] hostScoringMatrix;
-                delete[] hostBacktrackMatrix;
             }
-        }
 
+            // Wait for each thread to finish
+            uint64_t start_backtrack = get_time();
+            for(int threadID = 0; threadID < BATCH_SIZE/BACKTRACK_BATCH_SIZE; threadID++){
+                #ifdef DEBUG
+                    printLock();
+                    printf("Attempting to wait for threadID: %d\n", threadID);
+                    fflush(stdout);
+                    printUnlock();
+                #endif
+                int ret;
+                ret = pthread_join(threads[threadID], NULL);
+                if(ret != 0){
+                    printf("Failed to join to threadID: %d", threadID);
+                    exit(1);
+                }
+            }
+            backtracking_time += get_time() - start_backtrack;
+        }
+        
         cudaFree(deviceSequences);
         cudaFree(deviceAllSequenceInfo);
-
+        
         // free(tempDeviceScoringMatrices);
-        free(tempDeviceBacktrackMatrices);
-        free(hostSimilarityScores);
-
+        delete[] tempDeviceBacktrackMatrices;
+        delete[] hostSimilarityScores;
+        delete[] hostBacktrackingMemos;
+        
         // cudaFree(deviceScoringMatrices);
         cudaFree(deviceBacktrackMatrices);
         cudaFree(deviceSimilarityScores);
-    #else
 
-        // Copy over the sequences
-        char* deviceSequences;
-
-        handleErrs(
-            cudaMalloc(&deviceSequences, (fileInfo.numBytes) * sizeof(char)),
-            "FAILED TO ALLOCATE MEMORY FOR ALL SEQUENCES\n"
-        );
-
-        handleErrs(
-            cudaMemcpy(deviceSequences, sequences, (fileInfo.numBytes) * sizeof(char), cudaMemcpyHostToDevice),
-            "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
-        );
-
-
-        
-
-    
-        int *scoringMatrix,          directionMain *backtrackMatrix,
-        const char *queryStrings,    const char *referenceStrings,
-        const int *queryStartingIdxs, const int *referenceStartingIdxs,
-        const int *queryLengths,     const int *referenceLengths,
-        const int matchWeight,       const int mismatchWeight, 
-        const int gapWeight
-
-        char *
-
-
-
-
-
-
-
-
-
-
-
-        
-        
-    char *referenceString = &sequences[sequenceIdxs[0].referenceIdx];
-        char *queryString = &sequences[sequenceIdxs[0].queryIdx];
-        // char *referenceString = "GTCATGCAATAACG";
-        // char *queryString = "ATGCAATA";
-        // char *referenceString = "GTCAGTA";
-        // char *queryString = "ATACA";
-
-        int referenceLength = strlen(referenceString);
-        int queryLength = strlen(queryString);
-
-        printf("Reference String: %s (Length: %d)\n", referenceString, referenceLength);
-        printf("Query String: %s (Length: %d)\n", queryString, queryLength);
-        printf("(MATCH WEIGHT, MISMATCH WEIGHT, GAP WEIGHT): (%d, %d, %d)\n\n", matchWeight, mismatchWeight, gapWeight);
-
-        // Allocate device memory for matrices
-        printf("[Allocating CUDA Memory]\n");
-        int *deviceScoringMatrix;
-        directionMain *deviceBacktrackMatrix;
-        char *deviceReferenceString;
-        char *deviceQueryString;
-
-        handleErrs(
-            cudaMalloc(&deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int)),
-            "FAILED TO ALLOCATE MEMORY TO SCORING MATRIX\n"
-        );
-
-        handleErrs(
-            cudaMalloc(&deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain)),
-            "FAILED TO ALLOCATE MEMORY TO BACKTRACK MATRIX\n"
-        );
-
-        handleErrs(
-            cudaMalloc(&deviceReferenceString, (referenceLength) * sizeof(char)),
-            "FAILED TO ALLOCATE MEMORY TO REFERENCE STRING\n"
-        );
-
-        handleErrs(
-            cudaMemcpy(deviceReferenceString, referenceString, (referenceLength) * sizeof(char), cudaMemcpyHostToDevice),
-            "FAILED TO COPY MEMORY TO REFERENCE STRING\n"
-        );
-
-        handleErrs(
-            cudaMalloc(&deviceQueryString, (queryLength) * sizeof(char)),
-            "FAILED TO ALLOCATE MEMORY TO QUERY STRING\n"
-        );
-
-        handleErrs(
-            cudaMemcpy(deviceQueryString, queryString, (queryLength) * sizeof(char), cudaMemcpyHostToDevice),
-            "FAILED TO COPY MEMORY TO QUERY STRING\n"
-        );
-
-        // Need to launch sinular kernel
-        // Launching a kernel with 1 block with threadCount threads to populate scoring matrix
-        needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
-            deviceScoringMatrix, deviceBacktrackMatrix,
-            deviceQueryString, deviceReferenceString, 
-            queryLength, referenceLength, 
-            matchWeight, mismatchWeight, gapWeight
-        );
-
-        // Wait for kernel to finish
-        handleErrs(
-            cudaDeviceSynchronize(),
-            "SYNCHRONIZATION FAILED\n"
-        );
-
-        // Allocate host memory for matrices
-        // Allow for matrices to come from device -> host
-        // Free up device memory
-        int *hostScoringMatrix = new int[(referenceLength+1) * (queryLength+1)];
-        directionMain *hostBacktrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
-
-        // Copy information back from device --> host
-        handleErrs(
-            cudaMemcpy(hostScoringMatrix, deviceScoringMatrix, (referenceLength+1) * (queryLength+1) * sizeof(int), cudaMemcpyDeviceToHost),
-            "FAILED TO COPY SCORING MATRIX FROM DEVICE --> HOST"
-        );
-        
-        handleErrs(
-            cudaMemcpy(hostBacktrackMatrix, deviceBacktrackMatrix, (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
-            "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST"
-        );
-
-        cudaFree(deviceScoringMatrix);
-        cudaFree(deviceBacktrackMatrix);
-        cudaFree(deviceQueryString);
-        cudaFree(deviceReferenceString);
-
-        // Print Matrix
-        printf("Scored Matrix\n");
-        printMatrix(hostScoringMatrix, referenceLength + 1, queryLength + 1);
-        printf("Backtrack Matrix\n");
-        printBacktrackMatrix(hostBacktrackMatrix, referenceLength + 1, queryLength + 1);
-        
-
-        // Perform backtracking on host and print results
-        printf("0 | %d\n", hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
-        uint64_t start_backtrack = get_time();
-        backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
-        backtracking_time += get_time() - start_backtrack;
-        
-        // Free data arrays
-        delete[] hostScoringMatrix;
-        delete[] hostBacktrackMatrix;
+        delete[] threads;
+        delete[] threadArgs;
     #endif
-
     uint64_t elapsed_time = get_elapsed_time();
     printf("Elapsed time (usec): %lld\n", elapsed_time);
     printf("Elapsed kernel time (usec): %lld\n", kernel_time);
     printf("Elapsed backtracking time (usec): %lld\n", backtracking_time);
     printf("Elapsed memallocing time (usec): %lld\n", memalloc_time);
     printf("Elapsed time sum (usec): %lld\n",kernel_time + backtracking_time + memalloc_time);
+    printf("Num mem copys: %lld\n",numMemCpyDirections);
 
     // Cleanup
     printf("Cleaning up\n");
