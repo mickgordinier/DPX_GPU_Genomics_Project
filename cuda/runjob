@@ -1,19 +1,19 @@
 #!/bin/sh
 # COMMENT: #SBATCH directives that convey submission options:
 #SBATCH --job-name=LNW_cuda
-#SBATCH --mail-user=mickg@umich.edu
+#SBATCH --mail-user=khgoss@umich.edu
 #SBATCH --mail-type=BEGIN,END
 #SBATCH --cpus-per-task=1
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --mem-per-cpu=100m
+#SBATCH --mem=1G
 #SBATCH --time=00-00:00:15
 #SBATCH --account=eecs570s001w25_class
 #SBATCH --partition=gpu
 #SBATCH --gpus-per-node=1
-#SBATCH --output=/scratch/eecs570s001w25_class_root/eecs570s001w25_class/mickg/DPX_GPU_Genomics_Project/logs/%u/%x-%j.log
-#SBATCH --error=/scratch/eecs570s001w25_class_root/eecs570s001w25_class/mickg/DPX_GPU_Genomics_Project/logs/%u/error-%x-%j.log
+#SBATCH --output=/scratch/eecs570s001w25_class_root/eecs570s001w25_class/khgoss/DPX_GPU_Genomics_Project/logs/%u/%x-%j.log
+#SBATCH --error=/scratch/eecs570s001w25_class_root/eecs570s001w25_class/khgoss/DPX_GPU_Genomics_Project/logs/%u/error-%x-%j.log
 # COMMENT:The application(s) to execute along with its input arguments and options:
-# ./LNW -pairs /scratch/eecs570s001w25_class_root/eecs570s001w25_class/mickg/DPX_GPU_Genomics_Project/input-datasets/bsw/small/bandedSWA_SRR7733443_100k_input.txt
-# ./LNW2 -pairs /scratch/eecs570s001w25_class_root/eecs570s001w25_class/mickg/DPX_GPU_Genomics_Project/input-datasets/bsw/small/bandedSWA_SRR7733443_100k_input.txt
-./LNW8 -pairs /scratch/eecs570s001w25_class_root/eecs570s001w25_class/mickg/DPX_GPU_Genomics_Project/input-datasets/bsw/small/bandedSWA_SRR7733443_100k_input.txt
+# ./LNW -pairs /scratch/eecs570s001w25_class_root/eecs570s001w25_class/khgoss/DPX_GPU_Genomics_Project/input-datasets/bsw/small/bandedSWA_SRR7733443_100k_input.txt
+# ./LNW2 -pairs /scratch/eecs570s001w25_class_root/eecs570s001w25_class/khgoss/DPX_GPU_Genomics_Project/input-datasets/bsw/small/bandedSWA_SRR7733443_100k_input.txt
+./LNW8 -pairs /scratch/eecs570s001w25_class_root/eecs570s001w25_class/khgoss/DPX_GPU_Genomics_Project/input-datasets/bsw/small/bandedSWA_SRR7733443_100k_input.txt

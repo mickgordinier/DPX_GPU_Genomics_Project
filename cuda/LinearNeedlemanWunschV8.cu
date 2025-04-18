@@ -357,7 +357,7 @@ int main(int argc, char *argv[]) {
         memalloc_time += get_time() - start_memalloc;
 
         // Run the kernel on every sequence
-        for(size_t sequenceIdx = 0; sequenceIdx < 2000; sequenceIdx+=BATCH_SIZE){
+        for(size_t sequenceIdx = 0; sequenceIdx < fileInfo.numPairs; sequenceIdx+=BATCH_SIZE){
             start_memalloc = get_time();
 
             int largestReferenceLength = 0;
