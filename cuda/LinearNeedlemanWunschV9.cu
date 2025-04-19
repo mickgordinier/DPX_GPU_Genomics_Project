@@ -6,7 +6,7 @@
 
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
-#define BATCH_SIZE 100
+#define BATCH_SIZE 100000
 
 // Defining this will test all of the sequences in the input file
 #define TEST_ALL
