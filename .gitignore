@@ -5,3 +5,4 @@ input-datasets*
 *log*
 *.o
 cuda/runjob
+Makefile
