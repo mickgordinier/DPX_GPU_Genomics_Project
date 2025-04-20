@@ -6,7 +6,7 @@
 
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
-#define BATCH_SIZE 100000
+#define BATCH_SIZE 100
 
 // Defining this will test all of the sequences in the input file
 #define TEST_ALL
@@ -405,6 +405,12 @@ int main(int argc, char *argv[]) {
             handleErrs(
                 cudaMalloc(&deviceBacktrackStringRet, (stringLengthMax * 3) * BATCH_SIZE * sizeof(char)),
                 "FAILED TO ALLOCATE MEMORY TO BACKTRACKING STRINGS\n"
+            );
+
+             /* memset to null bytes */
+             handleErrs(
+                cudaMemset(deviceBacktrackStringRet, 0, (stringLengthMax * 3) * BATCH_SIZE * sizeof(char)),
+                "FAILED TO memset deviceMatricesAll\n"
             );
 
             memalloc_time += get_time() - start_memalloc;
