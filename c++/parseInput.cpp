@@ -65,12 +65,12 @@ inputInfo parseInput(const char* pairFileName, seqPair* &sequenceIdxs, char* &se
     // Read all of the bytes into our data struct
     int parseMode = PARSE_SCORE_SEED;
     size_t sequenceIdx = 0;
-    sequenceIdxs[sequenceIdx].scoreSeedIdx = 0;
+    // sequenceIdxs[sequenceIdx].scoreSeedIdx = 0;
     for(size_t i = 0; i < numBytes; i++){
         if (sequences[i] == '\n') {
             sequences[i] = '\0'; // replace with null terminator
             if(parseMode == PARSE_SCORE_SEED){
-                sequenceIdxs[sequenceIdx].scoreSeedSize = i - sequenceIdxs[sequenceIdx].scoreSeedIdx;
+                // sequenceIdxs[sequenceIdx].scoreSeedSize = i - sequenceIdxs[sequenceIdx].scoreSeedIdx;
                 sequenceIdxs[sequenceIdx].referenceIdx = i + 1;
                 parseMode = PARSE_REFERENCE;
             } else if (parseMode == PARSE_REFERENCE){
@@ -81,7 +81,7 @@ inputInfo parseInput(const char* pairFileName, seqPair* &sequenceIdxs, char* &se
                 sequenceIdxs[sequenceIdx].querySize = i - sequenceIdxs[sequenceIdx].queryIdx;
                 sequenceIdx += 1;
                 parseMode = PARSE_SCORE_SEED;
-                sequenceIdxs[sequenceIdx].scoreSeedIdx = i + 1;
+                // sequenceIdxs[sequenceIdx].scoreSeedIdx = i + 1;
             } else {
                 fprintf(stderr, "Parse mode tweaking: %d\n", n);
                 exit(1);
@@ -100,10 +100,10 @@ void printParsedFile(const size_t numPairs, const seqPair* sequenceIdxs, const c
 // Print out the first byte of each section to make sure I'm not crazy
     size_t sequenceIdx = 0;
     while(true){
-        printf("Pair: %d Score Seed: %c, Score Seed Size: %d, Reference: %c, Reference Size: %d, Query: %c, Query Size: %d\n", 
+        printf("Pair: %d Reference: %c, Reference Size: %d, Query: %c, Query Size: %d\n", 
         sequenceIdx,
-        sequences[sequenceIdxs[sequenceIdx].scoreSeedIdx],
-        sequenceIdxs[sequenceIdx].scoreSeedSize,
+        // sequences[sequenceIdxs[sequenceIdx].scoreSeedIdx],
+        // sequenceIdxs[sequenceIdx].scoreSeedSize,
         sequences[sequenceIdxs[sequenceIdx].referenceIdx],
         sequenceIdxs[sequenceIdx].referenceSize,
         sequences[sequenceIdxs[sequenceIdx].queryIdx],

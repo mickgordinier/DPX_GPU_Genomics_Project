@@ -7,6 +7,7 @@
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
 #define BATCH_SIZE 500
+#define STREAM_BATCH_SIZE 5
 
 __global__ void 
 needleman_wunsch_kernel(
@@ -148,7 +149,8 @@ needleman_wunsch_kernel(
         }
 
         if (row == numRows-1) {
-            similarityScores[blockIdx.x] = largestScore;
+            // printf("Sequence Idx: %d Similarity Score: %d\n", (streamIdx * BATCH_SIZE) + blockIdx.x, largestScore);
+            similarityScores[(streamIdx * BATCH_SIZE) + blockIdx.x] = largestScore;
         }
     }
 
@@ -326,32 +328,30 @@ int main(int argc, char *argv[]) {
     store all backtracking matrices for a batch in one matrix - each warp will index in via index array
     */
 
-    const int numStreamsConcurrently = 10;
-
     const int totalNumBatches = fileInfo.numPairs/BATCH_SIZE;
-    const int totalNumberStreamBatches = totalNumBatches/numStreamsConcurrently;
+    const int totalNumberStreamBatches = totalNumBatches/STREAM_BATCH_SIZE;
 
     int *deviceBacktrackingIndices;
-    int *hostBacktrackingIndices = (int *)malloc(numStreamsConcurrently * BATCH_SIZE * sizeof(int));
+    int *hostBacktrackingIndices = (int *)malloc(STREAM_BATCH_SIZE * BATCH_SIZE * sizeof(int));
 
     handleErrs(
-        cudaMalloc(&deviceBacktrackingIndices, numStreamsConcurrently * BATCH_SIZE * sizeof(int)),
+        cudaMalloc(&deviceBacktrackingIndices, STREAM_BATCH_SIZE * BATCH_SIZE * sizeof(int)),
         "FAILED TO ALLOCATE MEMORY TO deviceBacktrackingIndices\n"
     );
     
     int *deviceSimilarityScores;
-    int *hostSimilarityScores = (int*)malloc(numStreamsConcurrently * BATCH_SIZE * sizeof(int));
+    int *hostSimilarityScores = (int*)malloc(STREAM_BATCH_SIZE * BATCH_SIZE * sizeof(int));
 
     handleErrs(
-        cudaMalloc(&deviceSimilarityScores, numStreamsConcurrently * BATCH_SIZE * sizeof(int)),
+        cudaMalloc(&deviceSimilarityScores, STREAM_BATCH_SIZE * BATCH_SIZE * sizeof(int)),
         "FAILED TO ALLOCATE MEMORY TO deviceSimilarityScores\n"
     );
     
     int *deviceStringSpacing;
-    int *hostStringSpacing = (int*)malloc(numStreamsConcurrently * BATCH_SIZE * sizeof(int));
+    int *hostStringSpacing = (int*)malloc(STREAM_BATCH_SIZE * BATCH_SIZE * sizeof(int));
 
     handleErrs(
-        cudaMalloc(&deviceStringSpacing, numStreamsConcurrently * BATCH_SIZE * sizeof(int)),
+        cudaMalloc(&deviceStringSpacing, STREAM_BATCH_SIZE * BATCH_SIZE * sizeof(int)),
         "FAILED TO ALLOCATE MEMORY TO deviceSimilarityScores\n"
     );
 
@@ -364,13 +364,13 @@ int main(int argc, char *argv[]) {
         int largestReferenceLength = 0;
         int largestQueryLength = 0;
         
-        int startingSequenceIdx = (streamBatchIdx * numStreamsConcurrently * BATCH_SIZE);
+        int startingSequenceIdx = (streamBatchIdx * STREAM_BATCH_SIZE * BATCH_SIZE);
 
         hostBacktrackingIndices[0] = 0;
 
         int batchMatrixSize = 0;
 
-        for (size_t streamIdx = 0; streamIdx < numStreamsConcurrently; ++streamIdx) {
+        for (size_t streamIdx = 0; streamIdx < STREAM_BATCH_SIZE; ++streamIdx) {
 
             const int sequenceIdx = startingSequenceIdx + (streamIdx * BATCH_SIZE);
 
@@ -383,7 +383,7 @@ int main(int argc, char *argv[]) {
 
                 /* make sure we don't go over the end of the array */
                 batchMatrixSize += ((referenceLength + 1) * (queryLength + 1));
-                if ((i - startingSequenceIdx) < (numStreamsConcurrently * BATCH_SIZE - 1)){
+                if ((i - startingSequenceIdx) < (STREAM_BATCH_SIZE * BATCH_SIZE - 1)){
                     hostBacktrackingIndices[i-startingSequenceIdx + 1] = batchMatrixSize;
                 }
             }
@@ -400,25 +400,25 @@ int main(int argc, char *argv[]) {
 
         int stringLengthMax = (largestReferenceLength+largestQueryLength+1);
 
-        char *hostBacktrackingStringRet = (char *)malloc(stringLengthMax * 3 * BATCH_SIZE * numStreamsConcurrently * sizeof(char));
+        char *hostBacktrackingStringRet = (char *)malloc(stringLengthMax * 3 * BATCH_SIZE * STREAM_BATCH_SIZE * sizeof(char));
         char *deviceBacktrackStringRet;
 
         handleErrs(
             cudaMalloc(
                 &deviceBacktrackStringRet, 
-                (stringLengthMax * 3) * numStreamsConcurrently * BATCH_SIZE * sizeof(char)),
+                (stringLengthMax * 3) * STREAM_BATCH_SIZE * BATCH_SIZE * sizeof(char)),
             "FAILED TO ALLOCATE MEMORY TO BACKTRACKING STRINGS\n"
         );
 
         // For each stream batch, we will handle 10 kernels at a time (10 streams running concurrently)
-        cudaStream_t streams[numStreamsConcurrently];
+        cudaStream_t streams[STREAM_BATCH_SIZE];
         
-        for (int streamIdx = 0; streamIdx < numStreamsConcurrently; ++streamIdx) {
+        for (int streamIdx = 0; streamIdx < STREAM_BATCH_SIZE; ++streamIdx) {
             cudaStreamCreate(&streams[streamIdx]);
         }
 
         // Performfing the async calls
-        for (int streamIdx = 0; streamIdx < numStreamsConcurrently; ++streamIdx) {
+        for (int streamIdx = 0; streamIdx < STREAM_BATCH_SIZE; ++streamIdx) {
 
             // 1. Stream copies over their own section of backtracking indices
             handleErrs(
@@ -429,15 +429,6 @@ int main(int argc, char *argv[]) {
                     cudaMemcpyHostToDevice, 
                     streams[streamIdx]),
                 "FAILED TO COPY MEMORY FOR deviceBacktrackingIndices\n"
-            );
-
-            handleErrs(
-                cudaMemsetAsync(
-                    deviceBacktrackStringRet + ((stringLengthMax * 3) * BATCH_SIZE * streamIdx), 
-                    0, 
-                    (stringLengthMax * 3) * BATCH_SIZE * sizeof(char), 
-                    streams[streamIdx]),
-                "FAILED TO memset deviceMatricesAll\n"
             );
 
             int smem_size = (largestReferenceLength + 1) * sizeof(int);
@@ -484,7 +475,7 @@ int main(int argc, char *argv[]) {
             );
         }
 
-        for (int streamIdx = 0; streamIdx < numStreamsConcurrently; ++streamIdx) {
+        for (int streamIdx = 0; streamIdx < STREAM_BATCH_SIZE; ++streamIdx) {
 
             cudaStreamSynchronize(streams[streamIdx]);
 
@@ -492,9 +483,9 @@ int main(int argc, char *argv[]) {
 
             for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
                 // Backtrack matrices
-                printf("%d | %d\n", i, hostSimilarityScores[i-sequenceIdx]);
+                printf("%d | %d\n", i, hostSimilarityScores[i-startingSequenceIdx]);
 
-                int spacing = hostStringSpacing[i-sequenceIdx];
+                int spacing = hostStringSpacing[i-startingSequenceIdx];
 
                 printf("%s\n", hostBacktrackingStringRet + spacing);
                 printf("%s\n", hostBacktrackingStringRet + stringLengthMax + spacing);
