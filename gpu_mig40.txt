@@ -1,0 +1,120 @@
+=== logs/khgoss/gpu_mig40/LNW_cuda-24432493.log ===
+Kernel _Z23needleman_wunsch_kernelPiS_P13directionMainS_PcPKcPK7seqPairiiiii executed; Grid (500, 1, 1), Block(32, 1, 1), time: 502689
+Memcpy: 2000 bytes to device 0 in 1504 ns
+Memcpy: 2000 bytes to device 0 in 1536 ns
+Memcpy: 597000 bytes to device 0 in 24480 ns
+Elapsed time (usec): 462893
+Elapsed kernel time (usec): 201374
+Elapsed backtracking time (usec): 0
+Elapsed memallocing time (usec): 178465
+Elapsed time sum (usec): 379839
+Cleaning up
+
+=== logs/khgoss/gpu_mig40/LNW_cuda-24432494.log ===
+Kernel _Z23needleman_wunsch_kernelPiS_P13directionMainS_PcPKcPK7seqPairiiiii executed; Grid (500, 1, 1), Block(32, 1, 1), time: 504290
+Memcpy: 2000 bytes to device 0 in 1632 ns
+Memcpy: 2000 bytes to device 0 in 1536 ns
+Memcpy: 597000 bytes to device 0 in 24768 ns
+Elapsed time (usec): 396034
+Elapsed kernel time (usec): 135856
+Elapsed backtracking time (usec): 0
+Elapsed memallocing time (usec): 179426
+Elapsed time sum (usec): 315282
+Cleaning up
+
+=== logs/khgoss/gpu_mig40/LNW_cuda-24432495.log ===
+Kernel _Z23needleman_wunsch_kernelPiS_P13directionMainS_PcPKcPK7seqPairiiiii executed; Grid (500, 1, 1), Block(32, 1, 1), time: 502399
+Memcpy: 2000 bytes to device 0 in 1537 ns
+Memcpy: 2000 bytes to device 0 in 1567 ns
+Memcpy: 597000 bytes to device 0 in 24768 ns
+Elapsed time (usec): 424015
+Elapsed kernel time (usec): 140613
+Elapsed backtracking time (usec): 0
+Elapsed memallocing time (usec): 197682
+Elapsed time sum (usec): 338295
+Cleaning up
+
+=== logs/khgoss/gpu_mig40/LNW_cuda-24432496.log ===
+Kernel _Z23needleman_wunsch_kernelPiS_P13directionMainS_PcPKcPK7seqPairiiiii executed; Grid (500, 1, 1), Block(32, 1, 1), time: 503074
+Memcpy: 2000 bytes to device 0 in 1504 ns
+Memcpy: 2000 bytes to device 0 in 1505 ns
+Memcpy: 597000 bytes to device 0 in 24736 ns
+Elapsed time (usec): 397386
+Elapsed kernel time (usec): 135960
+Elapsed backtracking time (usec): 0
+Elapsed memallocing time (usec): 180487
+Elapsed time sum (usec): 316447
+Cleaning up
+
+=== logs/khgoss/gpu_mig40/LNW_cuda-24432497.log ===
+Kernel _Z23needleman_wunsch_kernelPiS_P13directionMainS_PcPKcPK7seqPairiiiii executed; Grid (500, 1, 1), Block(32, 1, 1), time: 502658
+Memcpy: 2000 bytes to device 0 in 1568 ns
+Memcpy: 2000 bytes to device 0 in 1568 ns
+Memcpy: 597000 bytes to device 0 in 24704 ns
+Elapsed time (usec): 389858
+Elapsed kernel time (usec): 135848
+Elapsed backtracking time (usec): 0
+Elapsed memallocing time (usec): 172412
+Elapsed time sum (usec): 308260
+Cleaning up
+
+=== logs/khgoss/gpu_mig40/LNW_cuda-24432498.log ===
+Kernel _Z23needleman_wunsch_kernelPiS_P13directionMainS_PcPKcPK7seqPairiiiii executed; Grid (500, 1, 1), Block(32, 1, 1), time: 503712
+Memcpy: 2000 bytes to device 0 in 1536 ns
+Memcpy: 2000 bytes to device 0 in 1536 ns
+Memcpy: 597000 bytes to device 0 in 24960 ns
+Elapsed time (usec): 409836
+Elapsed kernel time (usec): 136037
+Elapsed backtracking time (usec): 0
+Elapsed memallocing time (usec): 190539
+Elapsed time sum (usec): 326576
+Cleaning up
+
+=== logs/khgoss/gpu_mig40/LNW_cuda-24432499.log ===
+Kernel _Z23needleman_wunsch_kernelPiS_P13directionMainS_PcPKcPK7seqPairiiiii executed; Grid (500, 1, 1), Block(32, 1, 1), time: 502466
+Memcpy: 2000 bytes to device 0 in 1536 ns
+Memcpy: 2000 bytes to device 0 in 1536 ns
+Memcpy: 597000 bytes to device 0 in 24576 ns
+Elapsed time (usec): 400128
+Elapsed kernel time (usec): 135839
+Elapsed backtracking time (usec): 0
+Elapsed memallocing time (usec): 179444
+Elapsed time sum (usec): 315283
+Cleaning up
+
+=== logs/khgoss/gpu_mig40/LNW_cuda-24432500.log ===
+Kernel _Z23needleman_wunsch_kernelPiS_P13directionMainS_PcPKcPK7seqPairiiiii executed; Grid (500, 1, 1), Block(32, 1, 1), time: 501664
+Memcpy: 2000 bytes to device 0 in 1568 ns
+Memcpy: 2000 bytes to device 0 in 1536 ns
+Memcpy: 597000 bytes to device 0 in 24960 ns
+Elapsed time (usec): 413935
+Elapsed kernel time (usec): 136482
+Elapsed backtracking time (usec): 0
+Elapsed memallocing time (usec): 195813
+Elapsed time sum (usec): 332295
+Cleaning up
+
+=== logs/khgoss/gpu_mig40/LNW_cuda-24432501.log ===
+Kernel _Z23needleman_wunsch_kernelPiS_P13directionMainS_PcPKcPK7seqPairiiiii executed; Grid (500, 1, 1), Block(32, 1, 1), time: 503938
+Memcpy: 2000 bytes to device 0 in 1504 ns
+Memcpy: 2000 bytes to device 0 in 1536 ns
+Memcpy: 597000 bytes to device 0 in 24704 ns
+Elapsed time (usec): 389357
+Elapsed kernel time (usec): 135616
+Elapsed backtracking time (usec): 0
+Elapsed memallocing time (usec): 173524
+Elapsed time sum (usec): 309140
+Cleaning up
+
+=== logs/khgoss/gpu_mig40/LNW_cuda-24432502.log ===
+Kernel _Z23needleman_wunsch_kernelPiS_P13directionMainS_PcPKcPK7seqPairiiiii executed; Grid (500, 1, 1), Block(32, 1, 1), time: 501375
+Memcpy: 2000 bytes to device 0 in 1537 ns
+Memcpy: 2000 bytes to device 0 in 1536 ns
+Memcpy: 597000 bytes to device 0 in 24672 ns
+Elapsed time (usec): 411987
+Elapsed kernel time (usec): 136510
+Elapsed backtracking time (usec): 0
+Elapsed memallocing time (usec): 193524
+Elapsed time sum (usec): 330034
+Cleaning up
+
