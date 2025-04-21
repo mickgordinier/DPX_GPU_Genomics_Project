@@ -10,12 +10,12 @@ struct inputInfo{
 };
 
 struct seqPair {
-    size_t scoreSeedIdx;
-    size_t scoreSeedSize;
-    size_t referenceIdx;
-    size_t referenceSize;
-    size_t queryIdx;
-    size_t querySize;
+    // size_t scoreSeedIdx;
+    // size_t scoreSeedSize;
+    int referenceIdx;
+    int referenceSize;
+    int queryIdx;
+    int querySize;
 };
 
 inputInfo parseInput(const char* pairFileName, seqPair* &sequence_indices, char* &sequences);

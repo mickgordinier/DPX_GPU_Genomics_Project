@@ -335,6 +335,7 @@ int main(int argc, char *argv[]) {
             "FAILED TO ALLOCATE MEMORY TO deviceBacktrackMatrices\n"
         );
 
+
         // Allocate space for threads and threadArgs
         pthread_t           *threads    = new pthread_t[BATCH_SIZE/BACKTRACK_BATCH_SIZE];
         struct thread_arg   *threadArgs = new thread_arg[BATCH_SIZE/BACKTRACK_BATCH_SIZE];
@@ -437,6 +438,7 @@ int main(int argc, char *argv[]) {
                 
                 threadArgs[threadID] = threadArg;
 
+
                 // // Copy backtracking matrices back from cuda into hostBacktrackingMemos
                 //start_memalloc = get_time();
                 for(int pairIdx = pairBaseIdx; pairIdx < pairBaseIdx + BACKTRACK_BATCH_SIZE; pairIdx++){
@@ -447,12 +449,14 @@ int main(int argc, char *argv[]) {
                     const int referenceLength = allSequenceInfo[pairIdx].referenceSize;
 
                     // Get backtack matrix
+                    start_memalloc = get_time();
                     directionMain *backtrackMatrix = new directionMain[(referenceLength+1) * (queryLength+1)];
                     handleErrs(
                             cudaMemcpy(backtrackMatrix, tempDeviceBacktrackMatrices[pairIdx-sequenceIdx], (referenceLength+1) * (queryLength+1) * sizeof(directionMain), cudaMemcpyDeviceToHost),
                         "FAILED TO COPY BACKTRACK MATRIX FROM DEVICE --> HOST\n"
                     );
                     cudaFree(tempDeviceBacktrackMatrices[pairIdx-sequenceIdx]);
+                    memalloc_time += get_time() - start_memalloc;
 
                     hostBacktrackingMemos[pairIdx - sequenceIdx] = backtrackMatrix;
                     numMemCpyDirections += 1;
