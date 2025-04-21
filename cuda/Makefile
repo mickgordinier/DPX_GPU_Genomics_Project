@@ -40,7 +40,7 @@ LNW10: LinearNeedlemanWunschV10.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -g -o $@
 
 LNW12: LinearNeedlemanWunschV12.cu $(CPP_SOURCES)
-	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -g -o $@ -lcupti
+	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -g -o $@
 
 ANW: AffineNeedlemanWunsch.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
