@@ -41,6 +41,6 @@ compare_versions(version_df, version_components, "Average Execution Time Breakdo
 
 gpu_comparison_components = ['Memory Management', 'Kernel Execution', 'Printing']
 gpu_df = pd.read_excel('Timing_Analysis.xlsx', sheet_name='V12 Comparison', header=1)
-compare_versions(gpu_df, gpu_comparison_components, "V12 Execution Time Breakdown Across GPUs", "GPU", "Time (us)", "v12_gpu_comparison.png")
+compare_versions(gpu_df, gpu_comparison_components, "V12 Execution Time Breakdown Across GPUs", "GPU", "Time (ms)", "v12_gpu_comparison.png")
 
     
