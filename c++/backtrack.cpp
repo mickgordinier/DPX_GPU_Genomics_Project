@@ -80,29 +80,18 @@ void backtrackNW(const directionMain *backtrackMemo, const char *referenceString
     
 }
 
-void backtrackSW(const directionMain *backtrackMemo, const char *referenceString, const int referenceLength, const char *queryString,  const int queryLength, const int *scoreMatrix){
-    int numRows = queryLength + 1;
-    int numCols = referenceLength + 1;
-    
-    int currentMemoRow = 0;
-    int currentMemoCol = 0;
-
-    int maxScore = 0;
-    for (int i = 0; i < numRows; ++i) {
-        for (int j = 0; j < numCols; ++j) {
-            if (scoreMatrix[(i * numCols) + j] > maxScore) {
-                maxScore = scoreMatrix[(i * numCols) + j];
-                currentMemoRow = i;
-                currentMemoCol = j;
-            }
-        }
-    }
+void backtrackSW(
+    int currentMemoRow, int currentMemoCol, 
+    const int numCols,
+    const directionMain *backtrackMemo, 
+    const char *referenceString, const char *queryString)
+{
 
     std::string referenceSequence = "";
     std::string pairRelation = "";
     std::string querySequence = "";
 
-    while (currentMemoRow > 0 && currentMemoCol > 0 && scoreMatrix[(currentMemoRow * numCols) + currentMemoCol] != 0) {
+    while (currentMemoRow > 0 && currentMemoCol > 0 && (backtrackMemo[(currentMemoRow * numCols) + currentMemoCol] != NONE_MAIN)) {
         
         // Determine the current cell's predecessor
         switch (backtrackMemo[(currentMemoRow * numCols) + currentMemoCol]) {

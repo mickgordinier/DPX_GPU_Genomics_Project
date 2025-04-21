@@ -4,82 +4,10 @@
 #include "../c++/backtrack.h"
 #include "../c++/timing.h"
 
-// FOR PROFILING
-#include <cupti_version.h>
-#include <cupti.h>
-
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
-#define BATCH_SIZE 500
+#define BATCH_SIZE 1000
 
-// Defining this will test all of the sequences in the input file
-#define TEST_ALL
-
-// CUPTI callback functions
-void CUPTIAPI bufferRequested(uint8_t **buffer, size_t *size, size_t *maxNumRecords) {
-    *size = 16 * 1024;
-    *maxNumRecords = 0;
-    *buffer = (uint8_t *)malloc(*size);
-    if (*buffer == NULL) {
-        printf("Error: out of memory\n");
-        exit(1);
-    }
-}
-
-void CUPTIAPI bufferCompleted(CUcontext ctx, uint32_t streamId, uint8_t *buffer, size_t size, size_t validSize) {
-    CUpti_Activity *record = NULL;
-    if (validSize > 0) {
-        do {
-            CUptiResult status = cuptiActivityGetNextRecord(buffer, validSize, &record);
-            if (status == CUPTI_SUCCESS) {
-                if (record->kind == CUPTI_ACTIVITY_KIND_KERNEL) {
-                    CUpti_ActivityKernel4 *kernelRecord = (CUpti_ActivityKernel4 *)record;
-                    printf("Kernel %s executed; Grid (%d, %d, %d), Block(%d, %d, %d), time: %lld\n",
-                           kernelRecord->name,
-                           kernelRecord->gridX, kernelRecord->gridY, kernelRecord->gridZ,
-                           kernelRecord->blockX, kernelRecord->blockY, kernelRecord->blockZ,
-                           kernelRecord->end - kernelRecord->start);
-                }
-                else if (record->kind == CUPTI_ACTIVITY_KIND_MEMSET) {
-                    CUpti_ActivityMemset4  *memsetRecord  = (CUpti_ActivityMemset4 *)record;
-                    printf("Memset: %llu bytes to device %llu in %llu ns\n",
-                           memsetRecord->bytes, memsetRecord->deviceId,
-                           memsetRecord->end - memsetRecord->start);
-                }
-                else if (record->kind == CUPTI_ACTIVITY_KIND_MEMCPY) {
-                    CUpti_ActivityMemcpy2  *memcpyRecord  = (CUpti_ActivityMemcpy2 *)record;
-                    printf("Memcpy: %llu bytes to device %llu in %llu ns\n",
-                           memcpyRecord->bytes, memcpyRecord->deviceId,
-                           memcpyRecord->end - memcpyRecord->start);
-                }
-                // else if (record->kind == CUPTI_ACTIVITY_KIND_GLOBAL_ACCESS) {
-                //     // This is illustrative; replace with the actual structure type and data extraction
-                //     CUpti_ActivityGlobalAccess3 *globalAccessRecord = (CUpti_ActivityGlobalAccess3 *)record;
-                //     printf("Global access: executed %d\n", globalAccessRecord->executed);
-                //     // Extract further details based on the actual structure
-                // }
-            }
-            else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) break;
-            else {
-                printf("Error fetching outstanding records\n");
-                break;
-            }
-        } while (1);
-    }
-    free(buffer);
-}
-
-/*
-    THINGS TO CONSIDER FOR OPTIMIZATION
-    1. Complete removal of the scoring matrix altogether (Use of warp shuffling and shared memory)
-    2. Using 16x2 DPX instructions to have a thread work on 2 cells concurrently
-
-*/
-
-// NEEDLEMAN WUNSCH BASELINE KERNEL
-// SUPPORTS KERNELS WITH THREADS LESS THAN QUERY LENGTH
-// KERNEL IS LAUNCHED WITH MULTIPLE BLOCKS
-// EACH BLOCK HANDLES A SEQUENCE PAIR
 
 __global__ void 
 needleman_wunsch_kernel(
@@ -316,41 +244,6 @@ handleErrs(
 
 int main(int argc, char *argv[]) {
 
-    CUptiResult cuptiErr;
-    CUpti_SubscriberHandle subscriber;
-
-    // Setup CUPTI callback subscriber
-    cuptiErr = cuptiSubscribe(&subscriber, (CUpti_CallbackFunc)bufferCompleted, NULL);
-    if (cuptiErr != CUPTI_SUCCESS) {
-        printf("Failed to subscribe CUPTI\n");
-        exit(1);
-    }
-
-    cuptiErr = cuptiActivityRegisterCallbacks(bufferRequested, bufferCompleted);
-    if (cuptiErr != CUPTI_SUCCESS) {
-        printf("Failed to register CUPTI callbacks\n");
-        exit(1);
-    }
-
-    // Enable activity types (e.g., CUPTI_ACTIVITY_KIND_KERNEL)
-    cuptiErr = cuptiActivityEnable(CUPTI_ACTIVITY_KIND_KERNEL);
-    if (cuptiErr != CUPTI_SUCCESS) {
-        printf("Failed to enable CUPTI kernel activity\n");
-        exit(1);
-    }
-
-    cuptiErr = cuptiActivityEnable(CUPTI_ACTIVITY_KIND_MEMCPY);
-    if (cuptiErr != CUPTI_SUCCESS) {
-        printf("Failed to enable CUPTI memcpy activity\n");
-        exit(1);
-    }
-
-    cuptiErr = cuptiActivityEnable(CUPTI_ACTIVITY_KIND_MEMSET);
-    if (cuptiErr != CUPTI_SUCCESS) {
-        printf("Failed to enable CUPTI memset activity\n");
-        exit(1);
-    }
-
     // Print some cuda details
     printf("[Cuda Details]\n");
     int deviceCount;
@@ -406,236 +299,178 @@ int main(int argc, char *argv[]) {
     uint64_t memalloc_time = 0;
     uint64_t backtracking_time = 0;
     uint64_t start_time = start_timer();
-    #ifdef TEST_ALL
         
-        // Copy over the sequences
-        char* deviceSequences;
-        seqPair *deviceAllSequenceInfo;
+    // Copy over the sequences
+    char* deviceSequences;
+    seqPair *deviceAllSequenceInfo;
 
-        uint64_t start_memalloc = get_time();
+    uint64_t start_memalloc = get_time();
+    handleErrs(
+        cudaMalloc(&deviceSequences, (fileInfo.numBytes) * sizeof(char)),
+        "FAILED TO ALLOCATE MEMORY FOR ALL SEQUENCES\n"
+    );
+
+    handleErrs(
+        cudaMemcpy(deviceSequences, sequences, (fileInfo.numBytes) * sizeof(char), cudaMemcpyHostToDevice),
+        "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
+    );
+
+    handleErrs(
+        cudaMalloc(&deviceAllSequenceInfo, (fileInfo.numPairs) * sizeof(seqPair)),
+        "FAILED TO ALLOCATE MEMORY FOR ALL SEQUENCES\n"
+    );
+
+    handleErrs(
+        cudaMemcpy(deviceAllSequenceInfo, allSequenceInfo, (fileInfo.numPairs) * sizeof(seqPair), cudaMemcpyHostToDevice),
+        "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
+    );
+
+    /* 
+    store all backtracking matrices for a batch in one matrix - each warp will index in via index array
+    */
+    int *deviceBacktrackingIndices;
+    int *hostBacktrackingIndices = (int *)malloc(BATCH_SIZE * sizeof(int));
+    
+    handleErrs(
+        cudaMalloc(&deviceBacktrackingIndices, BATCH_SIZE * sizeof(int)),
+        "FAILED TO ALLOCATE MEMORY TO deviceBacktrackingIndices\n"
+    );
+    
+    int *deviceSimilarityScores;
+    int *hostSimilarityScores = (int*)malloc(BATCH_SIZE * sizeof(int));
+
+    handleErrs(
+        cudaMalloc(&deviceSimilarityScores, BATCH_SIZE * sizeof(int)),
+        "FAILED TO ALLOCATE MEMORY TO deviceSimilarityScores\n"
+    );
+    
+    int *deviceStringSpacing;
+    int *hostStringSpacing = (int*)malloc(BATCH_SIZE * sizeof(int));
+
+    handleErrs(
+        cudaMalloc(&deviceStringSpacing, BATCH_SIZE * sizeof(int)),
+        "FAILED TO ALLOCATE MEMORY TO deviceSimilarityScores\n"
+    );
+
+    memalloc_time += get_time() - start_memalloc;
+
+    // Run the kernel on every sequence
+    for(size_t sequenceIdx = 0; sequenceIdx < fileInfo.numPairs; sequenceIdx+=BATCH_SIZE){
+        start_memalloc = get_time();
+
+        int largestReferenceLength = 0;
+        int largestQueryLength = 0;
+
+        /* first warp's starting index is 0 */
+        uint64_t batchMatrixSize = 0;
+        hostBacktrackingIndices[0] = 0;
+        for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
+            const int queryLength = allSequenceInfo[i].querySize;
+            const int referenceLength = allSequenceInfo[i].referenceSize;
+
+            largestReferenceLength = max(largestReferenceLength, referenceLength);
+            largestQueryLength = max(largestQueryLength, queryLength);
+
+            /* make sure we don't go over the end of the array */
+            batchMatrixSize += ((referenceLength + 1) * (queryLength + 1));
+            if ((i - sequenceIdx) < (BATCH_SIZE - 1)){
+                hostBacktrackingIndices[i-sequenceIdx + 1] = batchMatrixSize;
+            }
+        }
+
+        /* copy backtracking indices to device */
         handleErrs(
-            cudaMalloc(&deviceSequences, (fileInfo.numBytes) * sizeof(char)),
-            "FAILED TO ALLOCATE MEMORY FOR ALL SEQUENCES\n"
+            cudaMemcpy(deviceBacktrackingIndices, hostBacktrackingIndices, BATCH_SIZE * sizeof(int), cudaMemcpyHostToDevice),
+            "FAILED TO COPY MEMORY FOR deviceBacktrackingIndices\n"
         );
 
+        /* allocate device mem for all backtracking matrices */
+        directionMain *deviceMatricesAll;
         handleErrs(
-            cudaMemcpy(deviceSequences, sequences, (fileInfo.numBytes) * sizeof(char), cudaMemcpyHostToDevice),
-            "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
+            cudaMalloc(&deviceMatricesAll, batchMatrixSize*sizeof(directionMain)),
+            "FAILED TO ALLOCATE MEMORY TO deviceMatricesAll\n"
         );
 
-        handleErrs(
-            cudaMalloc(&deviceAllSequenceInfo, (fileInfo.numPairs) * sizeof(seqPair)),
-            "FAILED TO ALLOCATE MEMORY FOR ALL SEQUENCES\n"
-        );
+        int stringLengthMax = (largestReferenceLength+largestQueryLength+1);
 
+        char *deviceBacktrackStringRet;
+    
         handleErrs(
-            cudaMemcpy(deviceAllSequenceInfo, allSequenceInfo, (fileInfo.numPairs) * sizeof(seqPair), cudaMemcpyHostToDevice),
-            "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
-        );
-
-        /* 
-        store all backtracking matrices for a batch in one matrix - each warp will index in via index array
-        */
-        int *deviceBacktrackingIndices;
-        int *hostBacktrackingIndices = (int *)malloc(BATCH_SIZE * sizeof(int));
-        
-        handleErrs(
-            cudaMalloc(&deviceBacktrackingIndices, BATCH_SIZE * sizeof(int)),
-            "FAILED TO ALLOCATE MEMORY TO deviceBacktrackingIndices\n"
-        );
-        
-        int *deviceSimilarityScores;
-        int *hostSimilarityScores = (int*)malloc(BATCH_SIZE * sizeof(int));
-
-        handleErrs(
-            cudaMalloc(&deviceSimilarityScores, BATCH_SIZE * sizeof(int)),
-            "FAILED TO ALLOCATE MEMORY TO deviceSimilarityScores\n"
-        );
-        
-        int *deviceStringSpacing;
-        int *hostStringSpacing = (int*)malloc(BATCH_SIZE * sizeof(int));
-
-        handleErrs(
-            cudaMalloc(&deviceStringSpacing, BATCH_SIZE * sizeof(int)),
-            "FAILED TO ALLOCATE MEMORY TO deviceSimilarityScores\n"
+            cudaMalloc(&deviceBacktrackStringRet, (stringLengthMax * 3) * BATCH_SIZE * sizeof(char)),
+            "FAILED TO ALLOCATE MEMORY TO BACKTRACKING STRINGS\n"
         );
 
         memalloc_time += get_time() - start_memalloc;
 
-        // Run the kernel on every sequence
-        for(size_t sequenceIdx = 0; sequenceIdx < fileInfo.numPairs; sequenceIdx+=BATCH_SIZE){
-            start_memalloc = get_time();
-
-            int largestReferenceLength = 0;
-            int largestQueryLength = 0;
-
-            /* first warp's starting index is 0 */
-            uint64_t batchMatrixSize = 0;
-            hostBacktrackingIndices[0] = 0;
-            for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
-                const int queryLength = allSequenceInfo[i].querySize;
-                const int referenceLength = allSequenceInfo[i].referenceSize;
-
-                largestReferenceLength = max(largestReferenceLength, referenceLength);
-                largestQueryLength = max(largestQueryLength, queryLength);
-
-                /* make sure we don't go over the end of the array */
-                batchMatrixSize += ((referenceLength + 1) * (queryLength + 1));
-                if ((i - sequenceIdx) < (BATCH_SIZE - 1)){
-                    hostBacktrackingIndices[i-sequenceIdx + 1] = batchMatrixSize;
-                }
-            }
-
-            /* copy backtracking indices to device */
-            handleErrs(
-                cudaMemcpy(deviceBacktrackingIndices, hostBacktrackingIndices, BATCH_SIZE * sizeof(int), cudaMemcpyHostToDevice),
-                "FAILED TO COPY MEMORY FOR deviceBacktrackingIndices\n"
-            );
-
-            /* allocate device mem for all backtracking matrices */
-            directionMain *deviceMatricesAll;
-            handleErrs(
-                cudaMalloc(&deviceMatricesAll, batchMatrixSize*sizeof(directionMain)),
-                "FAILED TO ALLOCATE MEMORY TO deviceMatricesAll\n"
-            );
-
-            int stringLengthMax = (largestReferenceLength+largestQueryLength+1);
-
-            char *deviceBacktrackStringRet;
+        uint64_t start_kernel = get_time();
+        // Need to launch kernel
+        int smem_size = (largestReferenceLength + 1) * sizeof(int);
+        needleman_wunsch_kernel<<<BATCH_SIZE, BLOCK_SIZE, smem_size>>>(
+            deviceSimilarityScores,
+            deviceStringSpacing,
+            deviceMatricesAll,
+            deviceBacktrackingIndices,
+            deviceBacktrackStringRet,
+            deviceSequences, deviceAllSequenceInfo,
+            matchWeight, mismatchWeight, gapWeight,
+            sequenceIdx, stringLengthMax
+        );
         
-            handleErrs(
-                cudaMalloc(&deviceBacktrackStringRet, (stringLengthMax * 3) * BATCH_SIZE * sizeof(char)),
-                "FAILED TO ALLOCATE MEMORY TO BACKTRACKING STRINGS\n"
-            );
+        // Wait for kernel to finish
+        handleErrs(
+            cudaDeviceSynchronize(),
+            "SYNCHRONIZATION FAILED\n"
+        );
+        kernel_time += get_time() - start_kernel;
 
-             /* memset to null bytes */
-             handleErrs(
-                cudaMemset(deviceBacktrackStringRet, 0, (stringLengthMax * 3) * BATCH_SIZE * sizeof(char)),
-                "FAILED TO memset deviceMatricesAll\n"
-            );
+        start_memalloc = get_time();
 
-            memalloc_time += get_time() - start_memalloc;
+        handleErrs(
+            cudaMemcpy(hostSimilarityScores, deviceSimilarityScores, BATCH_SIZE * sizeof(int), cudaMemcpyDeviceToHost),
+            "FAILED TO COPY SIMILARITY SCORES FROM DEVICE --> HOST\n"
+        );
 
-            uint64_t start_kernel = get_time();
-            // Need to launch kernel
-            int smem_size = (largestReferenceLength + 1) * sizeof(int);
-            needleman_wunsch_kernel<<<BATCH_SIZE, BLOCK_SIZE, smem_size>>>(
-                deviceSimilarityScores,
-                deviceStringSpacing,
-                deviceMatricesAll,
-                deviceBacktrackingIndices,
-                deviceBacktrackStringRet,
-                deviceSequences, deviceAllSequenceInfo,
-                matchWeight, mismatchWeight, gapWeight,
-                sequenceIdx, stringLengthMax
-            );
-            
-            // Wait for kernel to finish
-            handleErrs(
-                cudaDeviceSynchronize(),
-                "SYNCHRONIZATION FAILED\n"
-            );
-            kernel_time += get_time() - start_kernel;
+        handleErrs(
+            cudaMemcpy(hostStringSpacing, deviceStringSpacing, BATCH_SIZE * sizeof(int), cudaMemcpyDeviceToHost),
+            "FAILED TO COPY SIMILARITY SCORES FROM DEVICE --> HOST\n"
+        );
 
-            start_memalloc = get_time();
+        char *hostBacktrackingStringRet = (char *)malloc(stringLengthMax * 3 * BATCH_SIZE * sizeof(char));
 
-            handleErrs(
-                cudaMemcpy(hostSimilarityScores, deviceSimilarityScores, BATCH_SIZE * sizeof(int), cudaMemcpyDeviceToHost),
-                "FAILED TO COPY SIMILARITY SCORES FROM DEVICE --> HOST\n"
-            );
+        handleErrs(
+            cudaMemcpy(hostBacktrackingStringRet, deviceBacktrackStringRet, (stringLengthMax * 3) * BATCH_SIZE * sizeof(char), cudaMemcpyDeviceToHost),
+            "FAILED TO COPY BACKTRACKING STRING FROM DEVICE --> HOST\n"
+        );
 
-            handleErrs(
-                cudaMemcpy(hostStringSpacing, deviceStringSpacing, BATCH_SIZE * sizeof(int), cudaMemcpyDeviceToHost),
-                "FAILED TO COPY SIMILARITY SCORES FROM DEVICE --> HOST\n"
-            );
+        memalloc_time += get_time() - start_memalloc;
 
-            char *hostBacktrackingStringRet = (char *)malloc(stringLengthMax * 3 * BATCH_SIZE * sizeof(char));
+        for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
+        
+            // Backtrack matrices
+            printf("%d | %d\n", i, hostSimilarityScores[i-sequenceIdx]);
 
-            handleErrs(
-                cudaMemcpy(hostBacktrackingStringRet, deviceBacktrackStringRet, (stringLengthMax * 3) * BATCH_SIZE * sizeof(char), cudaMemcpyDeviceToHost),
-                "FAILED TO COPY BACKTRACKING STRING FROM DEVICE --> HOST\n"
-            );
+            int spacing = hostStringSpacing[i-sequenceIdx];
 
-            memalloc_time += get_time() - start_memalloc;
-
-            for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
-            
-                // Backtrack matrices
-                printf("%d | %d\n", i, hostSimilarityScores[i-sequenceIdx]);
-
-                // ATTEMPT #1: BINARY SEARCH
-                // int begin = ((stringLengthMax * 3) * (i - sequenceIdx));
-                // int end = begin + stringLengthMax - 1;
-
-                // int result = -1; 
-
-                // while (begin <= end) {
-                //     int middle = begin + (end - begin) / 2;
-
-                //     if (hostBacktrackingStringRet[middle] == '\0') {
-                //         begin = middle + 1;
-                //     } else {
-                //         result = middle;
-                //         end = middle - 1;
-                //     }
-                // }
-
-                // ATTEMPT #2: STUPID BINARY SEARCH
-                // int spacing = ((stringLengthMax * 3) * (i - sequenceIdx));
-                // int spacingIter = stringLengthMax / 4 - 1;
-                
-                // while (spacingIter > 0) {
-                //     while (hostBacktrackingStringRet[spacing] == '\0' && (spacing < ((stringLengthMax * 3) * (i - sequenceIdx)) + stringLengthMax)) {
-                //         spacing += spacingIter;
-                //     }
-                //     spacing -= spacingIter;
-
-                //     spacingIter = spacingIter >> 1;
-                // }
-                // spacing++;
-
-                int spacing = hostStringSpacing[i-sequenceIdx];
-
-                printf("%s\n", hostBacktrackingStringRet + spacing);
-                printf("%s\n", hostBacktrackingStringRet + stringLengthMax + spacing);
-                printf("%s\n", hostBacktrackingStringRet + stringLengthMax + stringLengthMax + spacing);
-            }
-
-            free(hostBacktrackingStringRet);
-            cudaFree(deviceBacktrackStringRet);
-            cudaFree(deviceMatricesAll);
+            printf("%s\n", hostBacktrackingStringRet + spacing);
+            printf("%s\n", hostBacktrackingStringRet + stringLengthMax + spacing);
+            printf("%s\n", hostBacktrackingStringRet + stringLengthMax + stringLengthMax + spacing);
         }
 
-        cudaFree(deviceSequences);
-        cudaFree(deviceAllSequenceInfo);
-
-        free(hostBacktrackingIndices);
-        free(hostSimilarityScores);
-        free(hostStringSpacing);
-
-        cudaFree(deviceBacktrackingIndices);
-        cudaFree(deviceSimilarityScores);
-        cudaFree(deviceStringSpacing);
-    #endif
-
-    // Before disabling CUPTI activities or application exit
-    cuptiErr = cuptiActivityFlushAll(0);
-    if (cuptiErr != CUPTI_SUCCESS) {
-        printf("Failed to flush CUPTI activities before exit\n");
+        free(hostBacktrackingStringRet);
+        cudaFree(deviceBacktrackStringRet);
+        cudaFree(deviceMatricesAll);
     }
 
-    // Clean up CUPTI
-    cuptiErr = cuptiActivityDisable(CUPTI_ACTIVITY_KIND_KERNEL);
-    if (cuptiErr != CUPTI_SUCCESS) {
-        printf("Failed to disable CUPTI activity\n");
-        exit(1);
-    }
+    cudaFree(deviceSequences);
+    cudaFree(deviceAllSequenceInfo);
 
-    cuptiErr = cuptiUnsubscribe(subscriber);
-    if (cuptiErr != CUPTI_SUCCESS) {
-        printf("Failed to unsubscribe CUPTI\n");
-        exit(1);
-    }
+    free(hostBacktrackingIndices);
+    free(hostSimilarityScores);
+    free(hostStringSpacing);
+
+    cudaFree(deviceBacktrackingIndices);
+    cudaFree(deviceSimilarityScores);
+    cudaFree(deviceStringSpacing);
 
 
     uint64_t elapsed_time = get_elapsed_time();

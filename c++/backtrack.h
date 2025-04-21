@@ -40,6 +40,12 @@ void backtrackNW(const directionMain *backtrackMemo, const char *referenceString
 
 void backtrackMultiNW(const directionMain *backtrackMemo, const char *referenceString, const int referenceLength, const char *queryString, const int queryLength, const int pairNum, const int score);
 
+void backtrackSW(
+    int currentMemoRow, int currentMemoCol, 
+    const int numCols,
+    const directionMain *backtrackMemo, 
+    const char *referenceString, const char *queryString);
+
 void backtrackANW(
     const directionMain *scoringBacktrack, 
     const directionIndel *queryInsertionBacktrack,
