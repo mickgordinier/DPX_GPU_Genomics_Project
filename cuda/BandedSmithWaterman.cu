@@ -25,7 +25,7 @@ banded_smith_waterman_kernel(
     const char *queryString, const char *referenceString,
     const int queryLength, const int referenceLength,
     const int matchWeight, const int mismatchWeight, 
-    const int gapWeight)
+    const int gapWeight, const int bandWidth)
 {
     // We are only launching 1 block
     // Thus, each thread will only have a unique threadID that differentiates the threads
@@ -48,8 +48,8 @@ banded_smith_waterman_kernel(
     // Writing in DRAM burst for faster updating
     elementIdx = tid;
     while(elementIdx < numCols) {
-        scoringMatrix[elementIdx] = gapWeight*elementIdx;
-        backtrackMatrix[elementIdx] = QUERY_INSERTION;
+        scoringMatrix[elementIdx] = 0;
+        backtrackMatrix[elementIdx] = NONE_MAIN;
         elementIdx += threadCount;
     }
 
@@ -57,8 +57,8 @@ banded_smith_waterman_kernel(
     // NOT Writing in DRAM burst (slower)
     elementIdx = tid;
     while(elementIdx < numRows) {
-        scoringMatrix[elementIdx*numCols] = gapWeight*elementIdx;
-        backtrackMatrix[elementIdx*numCols] = QUERY_DELETION;
+        scoringMatrix[elementIdx*numCols] = 0;
+        backtrackMatrix[elementIdx*numCols] = NONE_MAIN;
         elementIdx += threadCount;
     }
 
@@ -86,21 +86,21 @@ banded_smith_waterman_kernel(
 
     // Every thread gets a row and char
     int rowIdx = tid + 1;
+    char queryChar = queryString[rowIdx - 1];
+
+
+    int cell00Idx;
+    int cell01Idx;
+    int cell10Idx;
+    int cell11Idx;
 
     for (int rowLoopIdx = 0; rowLoopIdx < differentRows; ++rowLoopIdx) {
 
         // If the thread in the warp is outside the matrix, wait for the other threads
         if (rowIdx < numRows) {
 
-            char queryChar = queryString[rowIdx - 1];
-
             int adjColStart = max(1, rowIdx - bandWidth);
             int adjColEnd = min(numCols, rowIdx + bandWidth + 1);
-
-            int cell00Idx;
-            int cell01Idx;
-            int cell10Idx;
-            int cell11Idx;
 
             // Each later thread must wait for the previous thread
             int adjCol = 1 - tid;
@@ -110,45 +110,49 @@ banded_smith_waterman_kernel(
             for (int colIdx = adjColStart; colIdx < adjColEnd; ++colIdx) {
 
                 // Setup cell indices once a thread can start executing
-                cell00Idx = (rowIdx-1)*numCols + colIdx - 1;
-                cell01Idx = (rowIdx-1)*numCols + colIdx;
-                cell10Idx = rowIdx*numCols + colIdx - 1;
-                cell11Idx = rowIdx*numCols + colIdx;
+                if(adjCol == 1){
+                    cell00Idx = (rowIdx-1)*numCols + colIdx - 1;
+                    cell01Idx = (rowIdx-1)*numCols + colIdx;
+                    cell10Idx = rowIdx*numCols + colIdx - 1;
+                    cell11Idx = rowIdx*numCols + colIdx;
+                }
 
                 // Main cell updating
-                    
-                char referenceChar = referenceString[colIdx - 1];
-                directionMain cornerDirection = NONE_MAIN;
-                bool pred;
-                    
-                // Determine if match
-                bool isMatch = (queryChar == referenceChar);
-                cornerDirection = isMatch ? MATCH : MISMATCH;
-    
-                // Get all the possible scores
-                int matchMismatchScore = isMatch ? scoringMatrix[cell00Idx] + matchWeight : scoringMatrix[cell00Idx] + mismatchWeight;
-                int queryDeletionScore = scoringMatrix[cell01Idx] + gapWeight;
-                int queryInsertionScore = scoringMatrix[cell10Idx] + gapWeight;
-    
-                // Find the largest of the 3 scores
-                // Utilizing DPX instructions for updating
-                // pred = (queryDeletionScore >= matchMismatchScore)
-                int largestScore;
-                largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
-                if (pred) cornerDirection = QUERY_DELETION;
-                    
-                largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
-                if (pred) cornerDirection = QUERY_INSERTION;
+                if((adjCol > 0) && (adjCol < numCols)){
+                    char referenceChar = referenceString[colIdx - 1];
+                    directionMain cornerDirection = NONE_MAIN;
+                    bool pred;
+                        
+                    // Determine if match
+                    bool isMatch = (queryChar == referenceChar);
+                    cornerDirection = isMatch ? MATCH : MISMATCH;
+        
+                    // Get all the possible scores
+                    int matchMismatchScore = isMatch ? scoringMatrix[cell00Idx] + matchWeight : scoringMatrix[cell00Idx] + mismatchWeight;
+                    int queryDeletionScore = scoringMatrix[cell01Idx] + gapWeight;
+                    int queryInsertionScore = scoringMatrix[cell10Idx] + gapWeight;
+        
+                    // Find the largest of the 3 scores
+                    // Utilizing DPX instructions for updating
+                    // pred = (queryDeletionScore >= matchMismatchScore)
+                    int largestScore;
+                    largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
+                    if (pred) cornerDirection = QUERY_DELETION;
+                        
+                    largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
+                    if (pred) cornerDirection = QUERY_INSERTION;
 
-                largestScore = max(0, largestScore);
-    
-                // Update scoring matrix and incrementing pointers
-                scoringMatrix[cell11Idx] = largestScore;
-                backtrackMatrix[cell11Idx] = cornerDirection;
-                // cell00Idx += 1;
-                // cell01Idx += 1;
-                // cell10Idx += 1; IS THIS NEEDED????
-                // cell11Idx += 1;
+                    largestScore = __vibmax_s32(0, largestScore, &pred);
+                    if (pred) cornerDirection = NONE_MAIN;
+        
+                    // Update scoring matrix and incrementing pointers
+                    scoringMatrix[cell11Idx] = largestScore;
+                    backtrackMatrix[cell11Idx] = cornerDirection;
+                    cell00Idx += 1;
+                    cell01Idx += 1;
+                    cell10Idx += 1; IS THIS NEEDED????
+                    cell11Idx += 1;
+                }
 
                 ++adjCol;
 
@@ -277,7 +281,7 @@ int main(int argc, char *argv[]) {
             );
 
             // Need to launch kernel
-            needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
+            banded_smith_waterman_kernel<<<1, BLOCK_SIZE>>>(
                 deviceScoringMatrix, deviceBacktrackMatrix,
                 deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
                 sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
@@ -372,7 +376,7 @@ int main(int argc, char *argv[]) {
 
         // Need to launch singular kernel
         // Launching a kernel with 1 block with threadCount threads to populate scoring matrix
-        needleman_wunsch_kernel<<<1, BLOCK_SIZE>>>(
+        banded_smith_waterman_kernel<<<1, BLOCK_SIZE>>>(
             deviceScoringMatrix, deviceBacktrackMatrix,
             deviceQueryString, deviceReferenceString, 
             queryLength, referenceLength, 
