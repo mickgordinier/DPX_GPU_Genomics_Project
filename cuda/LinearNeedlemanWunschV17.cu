@@ -42,37 +42,6 @@ needleman_wunsch_kernel(
     const int numRows = sequenceInfo.querySize + 1;
     const int numCols = sequenceInfo.referenceSize + 1;
 
-    /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
-
-    // Used for when a thread has to iterate over more than one col/row
-    // int elementIdx;
-
-    // // Initialize the top row
-    // // Writing in DRAM burst for faster updating
-    // elementIdx = tid;
-    // while(elementIdx < numCols) {
-    //     backtrackMatrix[elementIdx] = QUERY_INSERTION;
-    //     elementIdx += BLOCK_SIZE;
-    // }
-
-    // // Initialize the left col
-    // // NOT Writing in DRAM burst (slower)
-    // elementIdx = tid;
-    // while(elementIdx < numRows) {
-    //     backtrackMatrix[elementIdx*numCols] = QUERY_DELETION;
-    //     elementIdx += BLOCK_SIZE;
-    // }
-
-    // if (tid == 0) {
-    //     backtrackMatrix[0] = NONE_MAIN;
-    // }
-
-    // Need to ensure that all threads in the block complete filling up all the edges
-    // Do not need to do syncthreads across each loop iteration as there is no dependencies
-    // __syncthreads();
-
-    /* --- (END) INITIALIZING THE SCORING MATRIX --- */
-
     /* --- (BEGIN) POPULATING THE SCORING MATRIX -- */
 
     /*
@@ -136,12 +105,7 @@ needleman_wunsch_kernel(
 
                 int matrixIdx = (stripeStartIdx * (BLOCK_SIZE+numCols-1) * BLOCK_SIZE) + ((col - 1) * BLOCK_SIZE) + tid;
 
-                // scoringMatrix[row * numCols + adj_col] = largestScore;
-                // if (sequenceIdx == 0 && tid == 18) {
-                //     printf("Writing %d to Row %d Col %d (Element Idx: %d)\n", cornerDirection, row, adj_col, matrixIdx);
-                // }
                 backtrackMatrix[matrixIdx] = cornerDirection;
-                // backtrackMatrix[row * numCols + adj_col] = cornerDirection;
 
                 left = largestScore;
 
