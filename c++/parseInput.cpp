@@ -64,6 +64,7 @@ inputInfo parseInput(const char* pairFileName, seqPair* &sequenceIdxs, char* &se
     }
     
     inputInfo retVal;
+    retVal.numPairs             = numPairs;
     retVal.numCells             = 0;
     retVal.minReferenceLength   = SIZE_MAX;
     retVal.minQueryLength       = SIZE_MAX;
