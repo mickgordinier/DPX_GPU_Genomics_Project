@@ -298,6 +298,7 @@ int main(int argc, char *argv[]) {
     uint64_t kernel_time = 0;
     uint64_t memalloc_time = 0;
     uint64_t backtracking_time = 0;
+    uint64_t printing_time = 0;
     uint64_t start_time = start_timer();
         
     // Copy over the sequences
@@ -444,6 +445,7 @@ int main(int argc, char *argv[]) {
 
         memalloc_time += get_time() - start_memalloc;
 
+        uint64_t start_print = get_time();
         for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
         
             // Backtrack matrices
@@ -455,6 +457,7 @@ int main(int argc, char *argv[]) {
             printf("%s\n", hostBacktrackingStringRet + stringLengthMax + spacing);
             printf("%s\n", hostBacktrackingStringRet + stringLengthMax + stringLengthMax + spacing);
         }
+        printing_time += get_time() - start_print;
 
         free(hostBacktrackingStringRet);
         cudaFree(deviceBacktrackStringRet);
@@ -491,7 +494,8 @@ int main(int argc, char *argv[]) {
     printf("Elapsed kernel time (usec): %lld\n", kernel_time);
     printf("Elapsed backtracking time (usec): %lld\n", backtracking_time);
     printf("Elapsed memallocing time (usec): %lld\n", memalloc_time);
-    printf("Elapsed time sum (usec): %lld\n",kernel_time + backtracking_time + memalloc_time);
+    printf("Elapsed printing time (usec): %lld\n", printing_time);
+    printf("Elapsed time sum (usec): %lld\n",kernel_time + backtracking_time + memalloc_time + printing_time);
 
     // Cleanup
     printf("Cleaning up\n");

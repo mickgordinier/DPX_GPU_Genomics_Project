@@ -309,6 +309,7 @@ int main(int argc, char *argv[]) {
     uint64_t kernel_time = 0;
     uint64_t memalloc_time = 0;
     uint64_t backtracking_time = 0;
+    uint64_t printing_time = 0;
     uint64_t start_time = start_timer();
         
     // Copy over the sequences
@@ -462,6 +463,7 @@ int main(int argc, char *argv[]) {
 
         memalloc_time += get_time() - start_memalloc;
 
+        uint64_t start_print = get_time();
         for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; ++i) {
         
             // Backtrack matrices
@@ -473,6 +475,7 @@ int main(int argc, char *argv[]) {
             printf("%s\n", hostBacktrackingStringRet + stringLengthMax + spacing);
             printf("%s\n", hostBacktrackingStringRet + stringLengthMax + stringLengthMax + spacing);
         }
+        printing_time += get_time() - start_print;
 
         free(hostBacktrackingStringRet);
         cudaFree(deviceBacktrackStringRet);
@@ -492,11 +495,25 @@ int main(int argc, char *argv[]) {
 
 
     uint64_t elapsed_time = get_elapsed_time();
+    printf("Max reference length: %d\n", fileInfo.maxReferenceLength);
+    printf("Max query length: %d\n", fileInfo.maxQueryLength);
+    printf("Min reference length: %d\n", fileInfo.minReferenceLength);
+    printf("Min query length: %d\n", fileInfo.minQueryLength);
+    printf("Avg reference length: %f\n", fileInfo.avgReferenceLength);
+    printf("Avg query length: %f\n", fileInfo.avgQueryLength);
+
+    printf("Number of cells: %d\n", fileInfo.numCells);
+    double kernel_time_double = ((double)kernel_time) / 1000000;
+    printf("Kernel time (sec): %f\n", kernel_time_double);
+    double GCUPS = (fileInfo.numCells / kernel_time_double) / 1000000000;
+    printf("GCUPS: %f\n", GCUPS);
+
     printf("Elapsed time (usec): %lld\n", elapsed_time);
     printf("Elapsed kernel time (usec): %lld\n", kernel_time);
     printf("Elapsed backtracking time (usec): %lld\n", backtracking_time);
     printf("Elapsed memallocing time (usec): %lld\n", memalloc_time);
-    printf("Elapsed time sum (usec): %lld\n",kernel_time + backtracking_time + memalloc_time);
+    printf("Elapsed printing time (usec): %lld\n", printing_time);
+    printf("Elapsed time sum (usec): %lld\n",kernel_time + backtracking_time + memalloc_time + printing_time);
 
     // Cleanup
     printf("Cleaning up\n");
