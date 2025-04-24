@@ -11,13 +11,13 @@
 
 __global__ void 
 needleman_wunsch_kernel(
-    int *similarityScores,
+    unsigned int *similarityScores,
     int *stringSpacing,
     directionMain *batchBacktrackMatrices,
-    int *batchIndices,
+    int *batchBacktrackMatrixStartingIndices,
     char *backtrackStringsRet, 
     const char *allSequences, const seqPair *allSequenceInfo,
-    const int matchWeight, const int mismatchWeight, const int gapWeight,
+    const unsigned int matchWeight, const unsigned int mismatchWeight, const unsigned int gapWeight,
     const int startingSequenceIdx, const int stringLengthMax)
 {
 
@@ -29,18 +29,29 @@ needleman_wunsch_kernel(
     // Each block handles their own sequence alignment
     // We index into the array to obtain the strings and length
     
-    int batchIndex = batchIndices[blockIdx.x];
-    directionMain *backtrackMatrix = batchBacktrackMatrices + batchIndex;
+    int startingMatrixIdx1 = batchBacktrackMatrixStartingIndices[(2 * blockIdx.x)];
+    int startingMatrixIdx2 = batchBacktrackMatrixStartingIndices[(2 * blockIdx.x) + 1];
 
-    const int sequenceIdx = startingSequenceIdx + blockIdx.x;
-    const seqPair sequenceInfo = allSequenceInfo[sequenceIdx];
-    
-    const char *queryString = allSequences + sequenceInfo.queryIdx;
-    const char *referenceString = allSequences + sequenceInfo.referenceIdx;
+    directionMain *backtrackMatrix1 = batchBacktrackMatrices + startingMatrixIdx1;
+    directionMain *backtrackMatrix2 = batchBacktrackMatrices + startingMatrixIdx2;
 
-    // The matrices are of size (queryLength + 1) * (referenceLength + 1)
-    const int numRows = sequenceInfo.querySize + 1;
-    const int numCols = sequenceInfo.referenceSize + 1;
+    const int sequenceIdx1 = startingSequenceIdx + (2 * blockIdx.x) ;
+    const int sequenceIdx2 = startingSequenceIdx + (2 * blockIdx.x) + 1;
+
+    const seqPair sequenceInfo1 = allSequenceInfo[sequenceIdx1];
+    const seqPair sequenceInfo2 = allSequenceInfo[sequenceIdx2];
+
+    const char *queryString1 = allSequences + sequenceInfo1.queryIdx;
+    const char *queryString2 = allSequences + sequenceInfo2.queryIdx;
+
+    const char *referenceString1 = allSequences + sequenceInfo1.referenceIdx;
+    const char *referenceString2 = allSequences + sequenceInfo2.referenceIdx;
+
+    const int numRows1 = sequenceInfo1.querySize + 1;
+    const int numRows2 = sequenceInfo2.querySize + 1;
+
+    const int numCols1 = sequenceInfo1.referenceSize + 1;
+    const int numCols2 = sequenceInfo2.referenceSize + 1;
 
     /* --- (BEGIN) INITIALIZING THE SCORING MATRIX --- */
 
@@ -50,21 +61,34 @@ needleman_wunsch_kernel(
     // Initialize the top row
     // Writing in DRAM burst for faster updating
     elementIdx = tid;
-    while(elementIdx < numCols) {
-        backtrackMatrix[elementIdx] = QUERY_INSERTION;
+    while(elementIdx < numCols1) {
+        backtrackMatrix1[elementIdx] = QUERY_INSERTION;
+        elementIdx += BLOCK_SIZE;
+    }
+    
+    elementIdx = tid;
+    while(elementIdx < numCols2) {
+        backtrackMatrix2[elementIdx] = QUERY_INSERTION;
         elementIdx += BLOCK_SIZE;
     }
 
     // Initialize the left col
     // NOT Writing in DRAM burst (slower)
     elementIdx = tid;
-    while(elementIdx < numRows) {
-        backtrackMatrix[elementIdx*numCols] = QUERY_DELETION;
+    while(elementIdx < numRows1) {
+        backtrackMatrix1[elementIdx*numCols1] = QUERY_DELETION;
+        elementIdx += BLOCK_SIZE;
+    }
+
+    elementIdx = tid;
+    while(elementIdx < numRows2) {
+        backtrackMatrix2[elementIdx*numCols2] = QUERY_DELETION;
         elementIdx += BLOCK_SIZE;
     }
 
     if (tid == 0) {
-        backtrackMatrix[0] = NONE_MAIN;
+        backtrackMatrix1[0] = NONE_MAIN;
+        backtrackMatrix2[0] = NONE_MAIN;
     }
 
     // Need to ensure that all threads in the block complete filling up all the edges
@@ -81,9 +105,9 @@ needleman_wunsch_kernel(
     [10][11]
     */
 
-    int leftDiag = gapWeight*tid;
-    int left = gapWeight*(tid+1);
-    int up = gapWeight*(tid+1); 
+    unsigned int leftDiag = gapWeight * tid;
+    unsigned int left     = gapWeight * (tid + 1);
+    unsigned int up       = gapWeight * (tid + 1); 
 
     // Going through all of the rows each thread has to do
     for (int stripeStart = 1; stripeStart < numRows; stripeStart+=BLOCK_SIZE){
@@ -97,7 +121,7 @@ needleman_wunsch_kernel(
         leftDiag = gapWeight*(row - 1);
         left = gapWeight*(row);
 
-        for (int col = 1; col < (numCols+BLOCK_SIZE); ++col){
+        for (int col = 1; col < (numCols+numRows); ++col){
             
             int adj_col = col - tid;
 
