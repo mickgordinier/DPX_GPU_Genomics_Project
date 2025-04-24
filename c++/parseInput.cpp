@@ -4,6 +4,8 @@
 #define PARSE_REFERENCE 1
 #define PARSE_QUERY 2
 
+#define INPUT_CAP 10000000
+
 inputInfo parseInput(const char* pairFileName, seqPair* &sequenceIdxs, char* &sequences){
     // Open file
     FILE *pairFile = fopen(pairFileName, "r");	
@@ -61,6 +63,15 @@ inputInfo parseInput(const char* pairFileName, seqPair* &sequenceIdxs, char* &se
         exit(1);
     }
     
+    inputInfo retVal;
+    retVal.numCells             = 0;
+    retVal.minReferenceLength   = SIZE_MAX;
+    retVal.minQueryLength       = SIZE_MAX;
+    retVal.maxReferenceLength   = 0;
+    retVal.maxQueryLength       = 0;
+    retVal.avgReferenceLength   = 0;
+    retVal.avgQueryLength       = 0;
+
 
     // Read all of the bytes into our data struct
     int parseMode = PARSE_SCORE_SEED;
@@ -75,11 +86,22 @@ inputInfo parseInput(const char* pairFileName, seqPair* &sequenceIdxs, char* &se
                 parseMode = PARSE_REFERENCE;
             } else if (parseMode == PARSE_REFERENCE){
                 sequenceIdxs[sequenceIdx].referenceSize = i - sequenceIdxs[sequenceIdx].referenceIdx;
+                retVal.avgReferenceLength += sequenceIdxs[sequenceIdx].referenceSize;
+                retVal.maxReferenceLength = std::max(retVal.maxReferenceLength, (size_t)sequenceIdxs[sequenceIdx].referenceSize);
+                retVal.minReferenceLength = std::min(retVal.minReferenceLength, (size_t)sequenceIdxs[sequenceIdx].referenceSize);
                 sequenceIdxs[sequenceIdx].queryIdx = i + 1;
                 parseMode = PARSE_QUERY;
             } else if (parseMode == PARSE_QUERY){
                 sequenceIdxs[sequenceIdx].querySize = i - sequenceIdxs[sequenceIdx].queryIdx;
+                retVal.avgQueryLength += sequenceIdxs[sequenceIdx].querySize;
+                retVal.maxQueryLength = std::max(retVal.maxQueryLength, (size_t)sequenceIdxs[sequenceIdx].querySize);
+                retVal.minQueryLength = std::min(retVal.minQueryLength, (size_t)sequenceIdxs[sequenceIdx].querySize);
+                retVal.numCells += (sequenceIdxs[sequenceIdx].referenceSize * sequenceIdxs[sequenceIdx].querySize);
                 sequenceIdx += 1;
+                if(sequenceIdx == INPUT_CAP){
+                    retVal.numPairs = INPUT_CAP;
+                    break;
+                }
                 parseMode = PARSE_SCORE_SEED;
                 // sequenceIdxs[sequenceIdx].scoreSeedIdx = i + 1;
             } else {
@@ -88,10 +110,9 @@ inputInfo parseInput(const char* pairFileName, seqPair* &sequenceIdxs, char* &se
             }
         }
     }
-
-    inputInfo retVal;
-    retVal.numPairs = numPairs;
     retVal.numBytes = numBytes;
+    retVal.avgReferenceLength = retVal.avgReferenceLength / retVal.numPairs;
+    retVal.avgQueryLength = retVal.avgQueryLength / retVal.numPairs;
     
     return retVal;
 }

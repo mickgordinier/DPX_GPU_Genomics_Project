@@ -1,12 +1,22 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstddef>
+#include <algorithm>
+#include <cstdint>
 
 #define PRINT_PARSED_PAIRS
 
 struct inputInfo{
     size_t numPairs;
     size_t numBytes;
+    size_t numCells;
+    size_t minReferenceLength;
+    size_t minQueryLength;
+    size_t maxReferenceLength;
+    size_t maxQueryLength;
+    double avgReferenceLength;
+    double avgQueryLength;
+
 };
 
 struct seqPair {
