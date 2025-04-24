@@ -103,6 +103,16 @@ needleman_wunsch_kernel(
                 largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
                 if (pred) cornerDirection = QUERY_INSERTION;
 
+                /* 
+                backtracking matrix is now padded for coalesced global memory accesses, so that
+                all threads now write to elements in the same row, eg:
+                t0  -   -   -   -   ... -   -
+                t0  t1  -   -   -   ... -   -
+                t0  t1  t2  -   -   ... -   - 
+                ...
+                -   -   -   -   -   ... t30 t31 
+                -   -   -   -   -   ... -   t31
+                */
                 int matrixIdx = (stripeStartIdx * (BLOCK_SIZE+numCols-1) * BLOCK_SIZE) + ((col - 1) * BLOCK_SIZE) + tid;
 
                 backtrackMatrix[matrixIdx] = cornerDirection;
