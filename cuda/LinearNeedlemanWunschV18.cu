@@ -159,17 +159,18 @@ needleman_wunsch_kernel(
     const int numRowsB = sequenceInfoB.querySize + 1;
     const int numColsB = sequenceInfoB.referenceSize + 1;
 
-    // if (tid == 0){
-    //     printf("1: sequenceIdx %d numRowsA %d numRowsB %d\n", sequenceIdxA, numRowsA, numRowsB);
-    // }
-
+    if (tid == 0 && sequenceIdxA == 0){
+    }
+    
     /* use the longer of the two alignments to determine loop bounds */
     const int numRows = max(numRowsA, numRowsB);
     const int numCols = max(numColsA, numColsB);
-
-    // if (tid == 0){
-    //     printf("2: sequenceIdx %d numRows %d numCols %d\n", sequenceIdxA, numRows, numCols);
-    // }
+    
+    if (tid == 0 && sequenceIdxA == 0){
+        printf("sequenceIdx %d numRowsA %d numColsA %d %s %s\n", sequenceIdxA, numRowsA, numColsA, queryStringA, referenceStringA);
+        printf("sequenceIdx %d numRowsB %d numColsB %d\n", sequenceIdxB, numRowsB, numColsB);
+        printf("maxRows %d maxCols %d\n", numRows, numCols);
+    }
 
     /* --- (BEGIN) COMPUTING SCORES -- */
     uint32_t leftDiag = pack_s16x2(gapWeight*tid, gapWeight*tid);
@@ -203,17 +204,21 @@ needleman_wunsch_kernel(
 
         leftDiag = pack_s16x2(gapWeight*(row - 1), gapWeight*(row - 1));
         left = pack_s16x2(gapWeight*row, gapWeight*row);
-
+        
         if ((row - 1) < queryLengthA){
             queryCharA = queryStringA[row-1];
+        } else {
+            queryCharA = '\0';
         }
-
+        
         if ((row - 1) < queryLengthB){
             queryCharB = queryStringB[row - 1];
+        } else {
+            queryCharB = '\0';
         }
-
-        // if (tid == 0){
-        //     printf("sequenceIdx %d row %d queryCharA %c queryCharB %c\n", sequenceIdxA, row, queryCharA, queryCharB);
+        
+        // if (sequenceIdxA == 0) {
+        //     printf("tid: %d, stripeStart: %d,  row: %d, leftDiag: %X, left %X, queryCharA: %c, queryCharB: %c\n", tid, stripeStart, row, leftDiag, left, queryCharA, queryCharB);
         // }
 
         for (int col = 1; col < (numCols+BLOCK_SIZE); ++col){
@@ -233,59 +238,58 @@ needleman_wunsch_kernel(
             
             if (adj_col > 0 && adj_col < numCols){
                 largestScore = pack_s16x2(0, 0);
-
-                if (adj_col < referenceLengthA){
+                
+                if (adj_col-1 < referenceLengthA){
                     referenceCharA = referenceStringA[adj_col-1];
                 }
-
-                if (adj_col < referenceLengthB){
+                
+                if (adj_col-1 < referenceLengthB){
                     referenceCharB = referenceStringB[adj_col-1];
                 }
-
+                
                 // if (tid == 0){
                 //     printf("sequenceIdx %d | row %d adj_col %d | left %x | leftDiag %x | up %x\n", sequenceIdxA, row, adj_col, left, leftDiag, up);
                 // }
-    
+                
                 directionMain cornerDirectionA = NONE_MAIN;
                 bool isMatchA = (queryCharA == referenceCharA);
                 cornerDirectionA = isMatchA ? MATCH : MISMATCH;
-
+                
                 directionMain cornerDirectionB = NONE_MAIN;
                 bool isMatchB = (queryCharB == referenceCharB);
                 cornerDirectionB = isMatchB ? MATCH : MISMATCH;
-    
+                
                 /* compute score for first alignment */
                 s16x2 leftDiagUnpacked = unpack_s16x2(leftDiag);
                 s16x2 leftUnpacked = unpack_s16x2(left);
                 s16x2 upUnpacked = unpack_s16x2(up);
 
+                // if (sequenceIdxA == 0 && row == 4 && adj_col == 2) {
+                //     printf("Is A Match: %d\n", isMatchA);
+                // }
+                
                 int16_t matchMismatchScoreA = isMatchA ? leftDiagUnpacked.A + matchWeight : leftDiagUnpacked.A + mismatchWeight;
                 int16_t queryDeletionScoreA = upUnpacked.A + gapWeight;
                 int16_t queryInsertionScoreA = leftUnpacked.A + gapWeight;
-
+                
                 /* compute score for second alignment */
                 int16_t matchMismatchScoreB = isMatchB ? leftDiagUnpacked.B + matchWeight : leftDiagUnpacked.B + mismatchWeight;
                 int16_t queryDeletionScoreB = upUnpacked.B + gapWeight;
                 int16_t queryInsertionScoreB = leftUnpacked.B + gapWeight;
-
+                
                 uint32_t queryDeletionScore = pack_s16x2(queryDeletionScoreA, queryDeletionScoreB);
                 uint32_t matchMismatchScore = pack_s16x2(matchMismatchScoreA, matchMismatchScoreB);
                 uint32_t queryInsertionScore = pack_s16x2(queryInsertionScoreA, queryInsertionScoreB);
-
-                // if (tid == 0 && sequenceIdxA == 0){
-                //     printf("sequenceIdxA %d queryCharA %c refCharA %c - isMatchA %d\n", sequenceIdxA, queryCharA, referenceCharA, isMatchA);
-                //     printf("sequenceIdxB %d queryCharB %c refCharB %c - isMatchB %d\n", sequenceIdxB, queryCharB, referenceCharB, isMatchB);
-                // }
-    
+                    
                 bool predA, predB;
                 largestScore = __vibmax_s16x2(queryDeletionScore, matchMismatchScore, &predA, &predB);
                 if (predA) cornerDirectionA = QUERY_DELETION;
                 if (predB) cornerDirectionB = QUERY_DELETION;
-                        
+                
                 largestScore = __vibmax_s16x2(queryInsertionScore, largestScore, &predA, &predB);
                 if (predA) cornerDirectionA = QUERY_INSERTION;
                 if (predB) cornerDirectionB = QUERY_INSERTION;
-
+                    
                 /* 
                 backtracking matrix is now padded for coalesced global memory accesses, so that
                 all threads now write to elements in the same row, eg:
@@ -296,17 +300,17 @@ needleman_wunsch_kernel(
                 -   -   -   -   -   ... t30 t31 
                 -   -   -   -   -   ... -   t31
                 */
-
+                
                 /*
                 matrix A: 5x7 
                 matrix B: 3x7
-
+                
                 STRIPE 0
-
+                
                 col = 3, tid = 2
                 idxA: 0 + (col - 1)*4 + tid = 2*4 + 2 = 10
                 idxB: 2*4 + 2 = 10
-
+                
                 
                 stripe 1
                 col = 6, tid = 0
@@ -316,33 +320,44 @@ needleman_wunsch_kernel(
                 */
                 int matrixIdxA = (stripeStartIdx * (BLOCK_SIZE+numColsA-1) * BLOCK_SIZE) + ((col - 1) * BLOCK_SIZE) + tid;
                 int matrixIdxB = (stripeStartIdx * (BLOCK_SIZE+numColsB-1) * BLOCK_SIZE) + ((col - 1) * BLOCK_SIZE) + tid;
-
-
+                
+                
                 if (adj_col < numColsA && row < numRowsA){
                     backtrackMatrixA[matrixIdxA] = cornerDirectionA;
                 }
-
+                
                 if (adj_col < numColsB && row < numRowsB){
                     backtrackMatrixB[matrixIdxB] = cornerDirectionB;
                 }
+                
+                if (sequenceIdxA == 0 && adj_col == 188) {
+                    printf("(%c %c) tid: %d, row: %d, adj_col: %d, (LD, U, L) = (%x, %x, %x), Score = %x\n", queryCharA, referenceCharA, tid, row, adj_col, leftDiag, up, left, largestScore);
+                }
 
                 left = largestScore;
-
+                
                 /* last thread in warp stores its scores in shared memory for t0 to access */
                 if (tid == (BLOCK_SIZE - 1)){
                     warpEdgeScore[adj_col] = largestScore;
                 }
+                
 
                 leftDiag = up;
             }
+            
 
             /*  top value for thread n + 1 is thread n's largestScore (just calculated value)*/
             up = __shfl_up_sync(0xffffffff, largestScore, 1);
 
-            if (sequenceIdxA == 0){
-                s16x2 largestScoreUnpacked = unpack_s16x2(largestScore);
-                printf("tid %d row %d adj_col %d largestScore %x largestScoreA %d largestScoreB %d\n", tid, row, adj_col, largestScore, largestScoreUnpacked.A, largestScoreUnpacked.B);
-            }
+            // if (sequenceIdxA == 0){
+            //     s16x2 largestScoreUnpacked = unpack_s16x2(largestScore);
+            //     printf("tid %d row %d adj_col %d largestScore %x largestScoreA %d largestScoreB %d\n", tid, row, adj_col, largestScore, largestScoreUnpacked.A, largestScoreUnpacked.B);
+            // }
+        }
+
+        if (row == numRowsA-1) {
+            finalScoreA
+            similarityScores[blockIdx.x] 
         }
 
         if (row == numRows-1) {
