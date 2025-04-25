@@ -8,7 +8,7 @@ CPP_SOURCES = 	../c++/backtrack.cpp \
 				
 CU_SOURCES = $(filter-out $(CU_FILTER), $(wildcard *.cu))
 CU_HEADERS = $(wildcard *.h)
-CU_EXE = $(CU_SOURCES:.cu=) LNW ANW LNW2 LNW3 LNW8 LNW9 LNW10 LNW11 LNW12 LNW13 LNW14 LNW15 LNW17 LNW18 LSW BWS
+CU_EXE = $(CU_SOURCES:.cu=) LNW ANW LNW2 LNW3 LNW8 LNW9 LNW10 LNW11 LNW12 LNW13 LNW14 LNW15 LNW17 LNW18 LSW SW SWOPT BWS
 
 
 print_vars:
@@ -62,6 +62,12 @@ LNW17: LinearNeedlemanWunschV17.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -g -o $@
 
 LNW18: LinearNeedlemanWunschV18.cu $(CPP_SOURCES)
+	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -g -o $@
+
+SW: LinearSmithWaterman.cu $(CPP_SOURCES)
+	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -g -o $@
+
+SWOPT: LinearSmithWatermanOpt.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -g -o $@
 
 ANW: AffineNeedlemanWunsch.cu $(CPP_SOURCES)
