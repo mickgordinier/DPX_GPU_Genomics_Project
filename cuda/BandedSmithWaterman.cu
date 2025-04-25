@@ -18,7 +18,7 @@ smith_waterman_kernel(
     const char *queryString, const char *referenceString,
     const int queryLength, const int referenceLength,
     const int matchWeight, const int mismatchWeight, 
-    const int gapWeight)
+    const int gapWeight, const int bandWidth)
 {
     // We are only launching 1 block
     // Thus, each thread will only have a unique threadID that differentiates the threads
@@ -82,6 +82,8 @@ smith_waterman_kernel(
     int cell10Idx;
     int cell11Idx;
 
+    int startCol, endCol;
+
     for (int rowLoopIdx = 0; rowLoopIdx < differentRows; ++rowLoopIdx) {
 
         // If the thread in the warp is outside the matrix, wait for the other threads
@@ -89,13 +91,23 @@ smith_waterman_kernel(
 
             // Each later thread must wait for the previous thread
             int adjCol = 1 - tid;
+
+            //we are doing computation from one column left of the diagonal
+            if (rowIdx >= 1) {
+                startCol = rowIdx - bandWidth;
+            } else {
+                startCol = bandWidth;
+            }
+
+            //we are trying to do computation one column to the right of the diagonal, memo[0].size() - 1 indicates this last column
+            endCol = std::min(row_idx + 1, referenceLength);
             
             // Each thread must go through the whole row
             // BUT, there is an adjustment that each thread must wait for
             for (int colIdx = 1; colIdx < (numCols+numRows); ++colIdx) {
 
                 // Setup cell indices once a thread can start executing
-                if(adjCol == 1){
+                if(adjCol == startCol){
                     cell00Idx = (rowIdx-1)*numCols + adjCol - 1;
                     cell01Idx = (rowIdx-1)*numCols + adjCol;
                     cell10Idx = rowIdx*numCols + adjCol - 1;
@@ -103,7 +115,7 @@ smith_waterman_kernel(
                 }
 
                 // Main cell updating
-                if((adjCol > 0) && (adjCol < numCols)){
+                if((adjCol > startCol) && (adjCol <= endCol)){
 
                     char referenceChar = referenceString[adjCol - 1];
                     directionMain cornerDirection = NONE_MAIN;
