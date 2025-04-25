@@ -355,82 +355,82 @@ void backtrackANW(
     printf("%s\n", querySequence.c_str());
 }
 
-void backtrackSW(const directionMain *backtrackMemo, const char *referenceString, const int referenceLength, const char *queryString,  const int queryLength){
-    int numRows = queryLength + 1;
-    int numCols = referenceLength + 1;
-    int currentMemoRow = queryLength;
-    int currentMemoCol = referenceLength;
+// void backtrackSW(const directionMain *backtrackMemo, const char *referenceString, const int referenceLength, const char *queryString,  const int queryLength){
+//     int numRows = queryLength + 1;
+//     int numCols = referenceLength + 1;
+//     int currentMemoRow = queryLength;
+//     int currentMemoCol = referenceLength;
 
-    std::string referenceSequence = "";
-    std::string pairRelation = "";
-    std::string querySequence = "";
+//     std::string referenceSequence = "";
+//     std::string pairRelation = "";
+//     std::string querySequence = "";
 
-    // Find the cell with the highest score to start backtracking
-    int maxScore = 0;
-    int maxRow = 0;
-    int maxCol = 0;
+//     // Find the cell with the highest score to start backtracking
+//     int maxScore = 0;
+//     int maxRow = 0;
+//     int maxCol = 0;
 
-    for (int i = 0; i < numRows; ++i) {
-        for (int j = 0; j < numCols; ++j) {
-            if (scoringMatrix[i * numCols + j] > maxScore) {
-                maxScore = scoringMatrix[i * numCols + j];
-                maxRow = i;
-                maxCol = j;
-            }
-        }
-    }
+//     for (int i = 0; i < numRows; ++i) {
+//         for (int j = 0; j < numCols; ++j) {
+//             if (scoringMatrix[i * numCols + j] > maxScore) {
+//                 maxScore = scoringMatrix[i * numCols + j];
+//                 maxRow = i;
+//                 maxCol = j;
+//             }
+//         }
+//     }
 
-    while (((currentMemoRow > 0) && (currentMemoCol > 0)) && 
-    scoringMatrix[currentMemoRow * numCols + currentMemoCol] > 0) {
+//     while (((currentMemoRow > 0) && (currentMemoCol > 0)) && 
+//     scoringMatrix[currentMemoRow * numCols + currentMemoCol] > 0) {
         
-        // Determine the current cell's predecessor
-        switch (backtrackMemo[(currentMemoRow * numCols) + currentMemoCol]) {
+//         // Determine the current cell's predecessor
+//         switch (backtrackMemo[(currentMemoRow * numCols) + currentMemoCol]) {
             
-            case MATCH:
-                referenceSequence = referenceString[currentMemoCol-1] + referenceSequence;
-                pairRelation = "*" + pairRelation;
-                querySequence = queryString[currentMemoRow-1] + querySequence;
-                --currentMemoRow;
-                --currentMemoCol;
-                break;
-            // end if match
+//             case MATCH:
+//                 referenceSequence = referenceString[currentMemoCol-1] + referenceSequence;
+//                 pairRelation = "*" + pairRelation;
+//                 querySequence = queryString[currentMemoRow-1] + querySequence;
+//                 --currentMemoRow;
+//                 --currentMemoCol;
+//                 break;
+//             // end if match
 
-            case MISMATCH: 
-                referenceSequence = referenceString[currentMemoCol-1] + referenceSequence;
-                pairRelation = "|" + pairRelation;
-                querySequence = queryString[currentMemoRow-1] + querySequence;
-                --currentMemoRow;
-                --currentMemoCol;
-                break;
-            // end if mismatch
+//             case MISMATCH: 
+//                 referenceSequence = referenceString[currentMemoCol-1] + referenceSequence;
+//                 pairRelation = "|" + pairRelation;
+//                 querySequence = queryString[currentMemoRow-1] + querySequence;
+//                 --currentMemoRow;
+//                 --currentMemoCol;
+//                 break;
+//             // end if mismatch
             
-            case QUERY_DELETION:
-                referenceSequence = "_" + referenceSequence;
-                pairRelation = " " + pairRelation;
-                querySequence = queryString[currentMemoRow-1] + querySequence;
-                --currentMemoRow;
-                break;
-            // end if query deletion
+//             case QUERY_DELETION:
+//                 referenceSequence = "_" + referenceSequence;
+//                 pairRelation = " " + pairRelation;
+//                 querySequence = queryString[currentMemoRow-1] + querySequence;
+//                 --currentMemoRow;
+//                 break;
+//             // end if query deletion
             
-            case QUERY_INSERTION:
-                referenceSequence = referenceString[currentMemoCol-1] + referenceSequence;
-                pairRelation = " " + pairRelation;
-                querySequence = "_" + querySequence;
-                --currentMemoCol;
-                break;
-            // end if query insertion
+//             case QUERY_INSERTION:
+//                 referenceSequence = referenceString[currentMemoCol-1] + referenceSequence;
+//                 pairRelation = " " + pairRelation;
+//                 querySequence = "_" + querySequence;
+//                 --currentMemoCol;
+//                 break;
+//             // end if query insertion
             
-            default:
-                exit(1);
-            // end if upper gap
+//             default:
+//                 exit(1);
+//             // end if upper gap
 
-        } // end switch
-    } // end while
+//         } // end switch
+//     } // end while
 
-    printf("%s\n", referenceSequence.c_str());
-    printf("%s\n", pairRelation.c_str());
-    printf("%s\n", querySequence.c_str());
+//     printf("%s\n", referenceSequence.c_str());
+//     printf("%s\n", pairRelation.c_str());
+//     printf("%s\n", querySequence.c_str());
     
-}
+// }
 
 

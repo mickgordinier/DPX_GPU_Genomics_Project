@@ -20,7 +20,7 @@ smith_waterman_kernel(
     const int matchWeight, const int mismatchWeight, 
     const int gapWeight)
 {
-        // We are only launching 1 block
+    // We are only launching 1 block
     // Thus, each thread will only have a unique threadID that differentiates the threads
     const int tid = threadIdx.x;
 
