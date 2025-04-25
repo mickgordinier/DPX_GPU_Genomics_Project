@@ -6,7 +6,7 @@
 
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
-#define BATCH_SIZE 10
+#define BATCH_SIZE 100000
 
 struct s16x2 {
     int16_t A;
@@ -21,7 +21,7 @@ __device__ __host__ s16x2 unpack_s16x2(uint32_t val){
     return {static_cast<int16_t>(val >> 16), static_cast<int16_t>(val & 0xFFFF)};
 }
 
-__device__ void backtracking(char *backtrackStringsRet, directionMain *backtrackMatrix, const char * referenceString, const char * queryString, int *stringSpacing, int numRows, int numCols, int referenceStrIdx, int alignmentStrIdx, int queryStrIdx){
+__device__ void backtracking(char *backtrackStringsRet, directionMain *backtrackMatrix, const char * referenceString, const char * queryString, int *stringSpacing, int numRows, int numCols, int &referenceStrIdx, int alignmentStrIdx, int queryStrIdx){
     backtrackStringsRet[referenceStrIdx] = '\0';
     backtrackStringsRet[alignmentStrIdx] = '\0';
     backtrackStringsRet[queryStrIdx] = '\0';
@@ -29,7 +29,19 @@ __device__ void backtracking(char *backtrackStringsRet, directionMain *backtrack
     int currentMemoRow = numRows - 1;
     int currentMemoCol = numCols - 1;
 
+    // if (numCols == 162 && numRows == 84) {
+    //     printf("A Reference: %s\n", backtrackStringsRet + referenceStrIdx);
+    //     printf("A Alignment: %s\n", backtrackStringsRet + alignmentStrIdx);
+    //     printf("A Query    : %s\n", backtrackStringsRet + queryStrIdx);
+    // }
+
     while ((currentMemoRow != 0) && (currentMemoCol != 0)) {
+
+        // if (numCols == 162 && numRows == 84) {
+        //     printf("A Reference: %s\n", backtrackStringsRet + referenceStrIdx);
+        //     printf("A Alignment: %s\n", backtrackStringsRet + alignmentStrIdx);
+        //     printf("A Query    : %s\n", backtrackStringsRet + queryStrIdx);
+        // }
 
         referenceStrIdx--;
         alignmentStrIdx--;
@@ -87,6 +99,13 @@ __device__ void backtracking(char *backtrackStringsRet, directionMain *backtrack
         } // end switch
     } // end while
 
+    // if (numCols == 162 && numRows == 84) {
+    //     printf("AM FINAL A Reference: %s\n", backtrackStringsRet + referenceStrIdx);
+    //     printf("AM FINAL A Alignment: %s\n", backtrackStringsRet + alignmentStrIdx);
+    //     printf("AM FINAL A Query    : %s\n", backtrackStringsRet + queryStrIdx);
+    //     printf("AM FINAL %d %d\n", currentMemoRow, currentMemoCol);
+    // }
+    
     while (currentMemoRow != 0) {
         referenceStrIdx--;
         alignmentStrIdx--;
@@ -96,7 +115,7 @@ __device__ void backtracking(char *backtrackStringsRet, directionMain *backtrack
         backtrackStringsRet[queryStrIdx] = queryString[currentMemoRow-1];
         --currentMemoRow;
     }
-
+    
     while (currentMemoCol != 0) {
         referenceStrIdx--;
         alignmentStrIdx--;
@@ -106,8 +125,6 @@ __device__ void backtracking(char *backtrackStringsRet, directionMain *backtrack
         backtrackStringsRet[queryStrIdx] = '_';
         --currentMemoCol;
     }
-
-    stringSpacing[blockIdx.x] = referenceStrIdx;
 }
 
 __global__ void 
@@ -168,13 +185,6 @@ needleman_wunsch_kernel(
     /* use the longer of the two alignments to determine loop bounds */
     const int numRows = max(numRowsA, numRowsB);
     const int numCols = max(numColsA, numColsB);
-    
-    if (tid == 0 && sequenceIdxA == 2){
-    if (tid == 0 && sequenceIdxA == 2){
-        printf("sequenceIdx %d numRowsA %d numColsA %d %s %s\n", sequenceIdxA, numRowsA, numColsA, queryStringA, referenceStringA);
-        printf("sequenceIdx %d numRowsB %d numColsB %d\n", sequenceIdxB, numRowsB, numColsB);
-        printf("maxRows %d maxCols %d\n", numRows, numCols);
-    }
 
     /* --- (BEGIN) COMPUTING SCORES -- */
     uint32_t leftDiag = pack_s16x2(gapWeight*tid, gapWeight*tid);
@@ -361,17 +371,11 @@ needleman_wunsch_kernel(
             if (row == numRowsA-1 && adj_col == numColsA-1) {
                 /* final score for alignment A is the upper 16 bits of the largestScore */
                 finalScoreA = static_cast<int16_t>((largestScore >> 16));
-                if (sequenceIdxA == 2){
-                    printf("final score A: %d %x %d %d\n", row, largestScore, (largestScore >> 16), finalScoreA);
-                } 
             }
 
             if (row == numRowsB-1 && adj_col == numColsB-1){
                 /* final score for alignment B is the lower 16 bits of the largestScore */
                 finalScoreB = static_cast<int16_t>(largestScore & 0xFFFF);
-                if (sequenceIdxA == 2){
-                    printf("final score B: %d %x %d %d\n", row, largestScore, static_cast<int16_t>(largestScore & 0xFFFF), finalScoreB);
-                } 
             }
         }
 
@@ -381,9 +385,6 @@ needleman_wunsch_kernel(
     if (tid == 0) {
         /* NB: similarityScores contains uint32_t -- depending on host to split scores properly between two alignments */
         similarityScores[blockIdx.x] = pack_s16x2(finalScoreA, finalScoreB);
-        if (sequenceIdxA == 2) printf("A: %d %x\n", finalScoreA, finalScoreA);
-        if (sequenceIdxA == 2) printf("B: %d %x\n", finalScoreB, finalScoreB);
-        if (sequenceIdxA == 2) printf("FINAL SCORE TO BLOCK: %d =  %x\n", blockIdx.x, similarityScores[blockIdx.x]);
     }
 
     /* --- (END) POPULATING THE SCORING MATRIX -- */
@@ -397,12 +398,14 @@ needleman_wunsch_kernel(
         int queryStrIdx = alignmentStrIdx + stringLengthMax;
 
         backtracking(backtrackStringsRet, backtrackMatrixA, referenceStringA, queryStringA, stringSpacing, numRowsA, numColsA, referenceStrIdx, alignmentStrIdx, queryStrIdx);
+        stringSpacing[2 * blockIdx.x] = referenceStrIdx;
 
         referenceStrIdx = (stringLengthMax * 3) * (2 * blockIdx.x + 1) + (stringLengthMax-1);
         alignmentStrIdx = referenceStrIdx + stringLengthMax;
         queryStrIdx = alignmentStrIdx + stringLengthMax;
 
         backtracking(backtrackStringsRet, backtrackMatrixB, referenceStringB, queryStringB, stringSpacing, numRowsB, numColsB, referenceStrIdx, alignmentStrIdx, queryStrIdx);
+        stringSpacing[(2* blockIdx.x) + 1] = referenceStrIdx;
     }
 }
 
@@ -591,7 +594,7 @@ int main(int argc, char *argv[]) {
         uint64_t start_kernel = get_time();
         // Need to launch kernel
         int smem_size = (largestReferenceLength + 1) * sizeof(uint32_t);
-        needleman_wunsch_kernel<<<BATCH_SIZE, BLOCK_SIZE, smem_size>>>(
+        needleman_wunsch_kernel<<<BATCH_SIZE/2, BLOCK_SIZE, smem_size>>>(
             deviceSimilarityScores,
             deviceStringSpacing,
             deviceMatricesAll,
