@@ -170,6 +170,7 @@ needleman_wunsch_kernel(
     const int numCols = max(numColsA, numColsB);
     
     if (tid == 0 && sequenceIdxA == 2){
+    if (tid == 0 && sequenceIdxA == 2){
         printf("sequenceIdx %d numRowsA %d numColsA %d %s %s\n", sequenceIdxA, numRowsA, numColsA, queryStringA, referenceStringA);
         printf("sequenceIdx %d numRowsB %d numColsB %d\n", sequenceIdxB, numRowsB, numColsB);
         printf("maxRows %d maxCols %d\n", numRows, numCols);
@@ -333,9 +334,9 @@ needleman_wunsch_kernel(
                     backtrackMatrixB[matrixIdxB] = cornerDirectionB;
                 }
                 
-                if (sequenceIdxA == 2 && adj_col == 249) {
-                    printf("(%c %c) tid: %d, row: %d, adj_col: %d, (LD, U, L) = (%x, %x, %x), Score = %x\n", queryCharA, referenceCharA, tid, row, adj_col, leftDiag, up, left, largestScore);
-                }
+                // if (sequenceIdxA == 0 && adj_col == 161) {
+                //     printf("(%c %c) tid: %d, row: %d, adj_col: %d, (LD, U, L) = (%x, %x, %x), Score = %x\n", queryCharA, referenceCharA, tid, row, adj_col, leftDiag, up, left, largestScore);
+                // }
 
                 left = largestScore;
                 
@@ -382,7 +383,7 @@ needleman_wunsch_kernel(
         similarityScores[blockIdx.x] = pack_s16x2(finalScoreA, finalScoreB);
         if (sequenceIdxA == 2) printf("A: %d %x\n", finalScoreA, finalScoreA);
         if (sequenceIdxA == 2) printf("B: %d %x\n", finalScoreB, finalScoreB);
-        if (sequenceIdxA == 2) printf("FINAL SCORE: %x\n", similarityScores[blockIdx.x]);
+        if (sequenceIdxA == 2) printf("FINAL SCORE TO BLOCK: %d =  %x\n", blockIdx.x, similarityScores[blockIdx.x]);
     }
 
     /* --- (END) POPULATING THE SCORING MATRIX -- */
@@ -632,8 +633,7 @@ int main(int argc, char *argv[]) {
         uint64_t start_print = get_time();
         for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; i+=2) {
 
-            uint32_t packedScore = hostSimilarityScores[i-sequenceIdx];
-            printf("packedScore: %x\n", packedScore);
+            uint32_t packedScore = hostSimilarityScores[(i-sequenceIdx)/2];
             s16x2 unpackedScore = unpack_s16x2(packedScore);
             int16_t scoreA = unpackedScore.A;
             int16_t scoreB = unpackedScore.B;
