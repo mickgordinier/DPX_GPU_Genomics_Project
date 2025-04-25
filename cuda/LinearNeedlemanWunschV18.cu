@@ -13,10 +13,12 @@ struct s16x2 {
     int16_t B;
 };
 
+/* pack 2 16-bit integers into 1 32-bit integer (upper 16 bits are valA, lower 16 bits are valB) */
 __device__ uint32_t pack_s16x2(uint16_t valA, uint16_t valB){
     return ((static_cast<uint32_t>(valA) << 16) | static_cast<uint32_t>(valB));
 }
 
+/* unpack 1 32-bit integer into 2 16-bit integers */
 __device__ __host__ s16x2 unpack_s16x2(uint32_t val){
     return {static_cast<int16_t>(val >> 16), static_cast<int16_t>(val & 0xFFFF)};
 }
@@ -29,20 +31,7 @@ __device__ void backtracking(char *backtrackStringsRet, directionMain *backtrack
     int currentMemoRow = numRows - 1;
     int currentMemoCol = numCols - 1;
 
-    // if (numCols == 162 && numRows == 84) {
-    //     printf("A Reference: %s\n", backtrackStringsRet + referenceStrIdx);
-    //     printf("A Alignment: %s\n", backtrackStringsRet + alignmentStrIdx);
-    //     printf("A Query    : %s\n", backtrackStringsRet + queryStrIdx);
-    // }
-
     while ((currentMemoRow != 0) && (currentMemoCol != 0)) {
-
-        // if (numCols == 162 && numRows == 84) {
-        //     printf("A Reference: %s\n", backtrackStringsRet + referenceStrIdx);
-        //     printf("A Alignment: %s\n", backtrackStringsRet + alignmentStrIdx);
-        //     printf("A Query    : %s\n", backtrackStringsRet + queryStrIdx);
-        // }
-
         referenceStrIdx--;
         alignmentStrIdx--;
         queryStrIdx--;
@@ -99,13 +88,6 @@ __device__ void backtracking(char *backtrackStringsRet, directionMain *backtrack
         } // end switch
     } // end while
 
-    // if (numCols == 162 && numRows == 84) {
-    //     printf("AM FINAL A Reference: %s\n", backtrackStringsRet + referenceStrIdx);
-    //     printf("AM FINAL A Alignment: %s\n", backtrackStringsRet + alignmentStrIdx);
-    //     printf("AM FINAL A Query    : %s\n", backtrackStringsRet + queryStrIdx);
-    //     printf("AM FINAL %d %d\n", currentMemoRow, currentMemoCol);
-    // }
-    
     while (currentMemoRow != 0) {
         referenceStrIdx--;
         alignmentStrIdx--;
@@ -144,7 +126,6 @@ needleman_wunsch_kernel(
     extern __shared__ uint32_t warpEdgeScore[]; 
 
     // We are launching multiple blocks, each of a warp of threads
-    // Each block handles their own sequence alignment
     // We index into the array to obtain the strings and length
     
     /* each block will compute 2 alignments */
@@ -178,9 +159,6 @@ needleman_wunsch_kernel(
 
     __shared__ int16_t finalScoreA;
     __shared__ int16_t finalScoreB;
-
-    if (tid == 0 && sequenceIdxA == 0){
-    }
     
     /* use the longer of the two alignments to determine loop bounds */
     const int numRows = max(numRowsA, numRowsB);
@@ -191,21 +169,10 @@ needleman_wunsch_kernel(
     uint32_t left = pack_s16x2(gapWeight*(tid+1), gapWeight*(tid+1));
     uint32_t up = pack_s16x2(gapWeight*(tid+1), gapWeight*(tid+1));
 
-    // if (tid == 0){
-    //     printf("left unpacked vals: %x, packed: %x\n", gapWeight*(tid+1), left);
-    //     printf("leftDiag unpacked vals: %x, packed: %x\n", gapWeight*tid, leftDiag);
-    //     printf("up unpacked vals: %x, packed: %x\n", gapWeight*(tid+1), up);
-    // }
-
     int stripeStartIdx = 0;
 
     char queryCharA = '\0', queryCharB = '\0';
     char referenceCharA = '\0', referenceCharB = '\0';
-
-    // if (tid == 0){
-    //     printf("seqIdxA %d | queryA %s | referenceA %s | numRowsA %d | numColsA %d | seqIdxB %d |queryB %s | referenceB %s | numRowsB %d | numColsB %d\n",
-    //         sequenceIdxA, queryStringA, referenceStringA, numRowsA, numColsA, sequenceIdxB, queryStringB, referenceStringB, numRowsB, numColsB);
-    // }
 
     // Going through all of the rows each thread has to do
     for (int stripeStart = 1; stripeStart < numRows; stripeStart+=BLOCK_SIZE){
@@ -230,10 +197,6 @@ needleman_wunsch_kernel(
         } else {
             queryCharB = '\0';
         }
-        
-        // if (sequenceIdxA == 0) {
-        //     printf("tid: %d, stripeStart: %d,  row: %d, leftDiag: %X, left %X, queryCharA: %c, queryCharB: %c\n", tid, stripeStart, row, leftDiag, left, queryCharA, queryCharB);
-        // }
 
         for (int col = 1; col < (numCols+BLOCK_SIZE); ++col){
             int adj_col = col - tid;
@@ -261,10 +224,7 @@ needleman_wunsch_kernel(
                     referenceCharB = referenceStringB[adj_col-1];
                 }
                 
-                // if (tid == 0){
-                //     printf("sequenceIdx %d | row %d adj_col %d | left %x | leftDiag %x | up %x\n", sequenceIdxA, row, adj_col, left, leftDiag, up);
-                // }
-                
+
                 directionMain cornerDirectionA = NONE_MAIN;
                 bool isMatchA = (queryCharA == referenceCharA);
                 cornerDirectionA = isMatchA ? MATCH : MISMATCH;
@@ -277,10 +237,6 @@ needleman_wunsch_kernel(
                 s16x2 leftDiagUnpacked = unpack_s16x2(leftDiag);
                 s16x2 leftUnpacked = unpack_s16x2(left);
                 s16x2 upUnpacked = unpack_s16x2(up);
-
-                // if (sequenceIdxA == 0 && row == 4 && adj_col == 2) {
-                //     printf("Is A Match: %d\n", isMatchA);
-                // }
                 
                 int16_t matchMismatchScoreA = isMatchA ? leftDiagUnpacked.A + matchWeight : leftDiagUnpacked.A + mismatchWeight;
                 int16_t queryDeletionScoreA = upUnpacked.A + gapWeight;
@@ -315,23 +271,6 @@ needleman_wunsch_kernel(
                 -   -   -   -   -   ... -   t31
                 */
                 
-                /*
-                matrix A: 5x7 
-                matrix B: 3x7
-                
-                STRIPE 0
-                
-                col = 3, tid = 2
-                idxA: 0 + (col - 1)*4 + tid = 2*4 + 2 = 10
-                idxB: 2*4 + 2 = 10
-                
-                
-                stripe 1
-                col = 6, tid = 0
-                idxA: 1*(4 + 7 - 1)*4 + (5 * 4) + 0 = 60
-                
-                
-                */
                 int matrixIdxA = (stripeStartIdx * (BLOCK_SIZE+numColsA-1) * BLOCK_SIZE) + ((col - 1) * BLOCK_SIZE) + tid;
                 int matrixIdxB = (stripeStartIdx * (BLOCK_SIZE+numColsB-1) * BLOCK_SIZE) + ((col - 1) * BLOCK_SIZE) + tid;
                 
@@ -343,10 +282,7 @@ needleman_wunsch_kernel(
                 if (adj_col < numColsB && row < numRowsB){
                     backtrackMatrixB[matrixIdxB] = cornerDirectionB;
                 }
-                
-                // if (sequenceIdxA == 0 && adj_col == 161) {
-                //     printf("(%c %c) tid: %d, row: %d, adj_col: %d, (LD, U, L) = (%x, %x, %x), Score = %x\n", queryCharA, referenceCharA, tid, row, adj_col, leftDiag, up, left, largestScore);
-                // }
+
 
                 left = largestScore;
                 
@@ -362,11 +298,6 @@ needleman_wunsch_kernel(
 
             /*  top value for thread n + 1 is thread n's largestScore (just calculated value)*/
             up = __shfl_up_sync(0xffffffff, largestScore, 1);
-
-            // if (sequenceIdxA == 0){
-            //     s16x2 largestScoreUnpacked = unpack_s16x2(largestScore);
-            //     printf("tid %d row %d adj_col %d largestScore %x largestScoreA %d largestScoreB %d\n", tid, row, adj_col, largestScore, largestScoreUnpacked.A, largestScoreUnpacked.B);
-            // }
 
             if (row == numRowsA-1 && adj_col == numColsA-1) {
                 /* final score for alignment A is the upper 16 bits of the largestScore */
