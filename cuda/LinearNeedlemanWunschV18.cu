@@ -169,7 +169,7 @@ needleman_wunsch_kernel(
     const int numRows = max(numRowsA, numRowsB);
     const int numCols = max(numColsA, numColsB);
     
-    if (tid == 0 && sequenceIdxA == 0){
+    if (tid == 0 && sequenceIdxA == 2){
         printf("sequenceIdx %d numRowsA %d numColsA %d %s %s\n", sequenceIdxA, numRowsA, numColsA, queryStringA, referenceStringA);
         printf("sequenceIdx %d numRowsB %d numColsB %d\n", sequenceIdxB, numRowsB, numColsB);
         printf("maxRows %d maxCols %d\n", numRows, numCols);
@@ -333,7 +333,7 @@ needleman_wunsch_kernel(
                     backtrackMatrixB[matrixIdxB] = cornerDirectionB;
                 }
                 
-                if (sequenceIdxA == 0 && adj_col == 161) {
+                if (sequenceIdxA == 2 && adj_col == 249) {
                     printf("(%c %c) tid: %d, row: %d, adj_col: %d, (LD, U, L) = (%x, %x, %x), Score = %x\n", queryCharA, referenceCharA, tid, row, adj_col, leftDiag, up, left, largestScore);
                 }
 
@@ -360,7 +360,7 @@ needleman_wunsch_kernel(
             if (row == numRowsA-1 && adj_col == numColsA-1) {
                 /* final score for alignment A is the upper 16 bits of the largestScore */
                 finalScoreA = static_cast<int16_t>((largestScore >> 16));
-                if (sequenceIdxA == 0){
+                if (sequenceIdxA == 2){
                     printf("final score A: %d %x %d %d\n", row, largestScore, (largestScore >> 16), finalScoreA);
                 } 
             }
@@ -368,7 +368,7 @@ needleman_wunsch_kernel(
             if (row == numRowsB-1 && adj_col == numColsB-1){
                 /* final score for alignment B is the lower 16 bits of the largestScore */
                 finalScoreB = static_cast<int16_t>(largestScore & 0xFFFF);
-                if (sequenceIdxA == 0){
+                if (sequenceIdxA == 2){
                     printf("final score B: %d %x %d %d\n", row, largestScore, static_cast<int16_t>(largestScore & 0xFFFF), finalScoreB);
                 } 
             }
@@ -380,9 +380,9 @@ needleman_wunsch_kernel(
     if (tid == 0) {
         /* NB: similarityScores contains uint32_t -- depending on host to split scores properly between two alignments */
         similarityScores[blockIdx.x] = pack_s16x2(finalScoreA, finalScoreB);
-        if (sequenceIdxA == 0) printf("A: %d %x\n", finalScoreA, finalScoreA);
-        if (sequenceIdxA == 0) printf("B: %d %x\n", finalScoreB, finalScoreB);
-        if (sequenceIdxA == 0) printf("FINAL SCORE: %x\n", similarityScores[blockIdx.x]);
+        if (sequenceIdxA == 2) printf("A: %d %x\n", finalScoreA, finalScoreA);
+        if (sequenceIdxA == 2) printf("B: %d %x\n", finalScoreB, finalScoreB);
+        if (sequenceIdxA == 2) printf("FINAL SCORE: %x\n", similarityScores[blockIdx.x]);
     }
 
     /* --- (END) POPULATING THE SCORING MATRIX -- */
@@ -633,6 +633,7 @@ int main(int argc, char *argv[]) {
         for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; i+=2) {
 
             uint32_t packedScore = hostSimilarityScores[i-sequenceIdx];
+            printf("packedScore: %x\n", packedScore);
             s16x2 unpackedScore = unpack_s16x2(packedScore);
             int16_t scoreA = unpackedScore.A;
             int16_t scoreB = unpackedScore.B;
