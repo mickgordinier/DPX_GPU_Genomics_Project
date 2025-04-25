@@ -103,9 +103,9 @@ void LinearSmithWaterman::score_matrix() {
             // If the greatest amongst the 3 is still negative, no backtracking
             if (temp_greatest < 0) {continue;}
             // Otherwise, note where the cell needs to backtrack to
-            else if(corner_score == memo[row_idx][col_idx]){backtrack_memo[row_idx-1][col_idx-1] = corner_direction;} 
+            else if (upper_score == memo[row_idx][col_idx]){backtrack_memo[row_idx-1][col_idx-1] = UPPER_GAP;}// end if
             else if (left_score == memo[row_idx][col_idx]) {backtrack_memo[row_idx-1][col_idx-1] = LEFT_GAP;} 
-            else {backtrack_memo[row_idx-1][col_idx-1] = UPPER_GAP;}// end if
+            else {backtrack_memo[row_idx-1][col_idx-1] = corner_direction;} 
 
         } // end for col_idx
     } // end for row_idx
@@ -142,8 +142,8 @@ void LinearSmithWaterman::backtrack(){
             }
         }
     #else
-        for(size_t row_idx = memo.size() - 1; row_idx > 0; row_idx--) {
-            for(size_t col_idx = memo[0].size() - 1; col_idx > 0; col_idx--) {
+        for(size_t row_idx = 0; row_idx < memo.size(); row_idx++) {
+            for(size_t col_idx = 0; col_idx < memo[0].size(); col_idx++) {
                 int new_max_score = max(max_score, memo[row_idx][col_idx]);
                 // Clear the queue if we have a new max val + store it
                 if(new_max_score > max_score){
@@ -168,7 +168,7 @@ void LinearSmithWaterman::backtrack(){
         backtrack_info next_cell;
         // Determine the current cell's predecessor
         switch (backtrack_memo[current_cell.row_idx-1][current_cell.col_idx-1]) {
-            case CORNER_MATCH:   
+            case CORNER_MATCH:
                 next_cell.col_idx = current_cell.col_idx-1;
                 next_cell.row_idx = current_cell.row_idx-1;
                 next_cell.reference_sequence = reference_str[current_cell.col_idx-1];
@@ -252,6 +252,9 @@ void LinearSmithWaterman::print_results(){
     #else
     printf("%d | ", pairNum);
         cout << max_score << "\n";
+        if (!max_score) {
+            cout << "\n\n\n";
+        }
     #endif
 
     for(size_t idx = 0; idx < results.size(); idx++){
@@ -259,7 +262,6 @@ void LinearSmithWaterman::print_results(){
             cout << "Sequence Pair: " << idx << "\n";
         #endif
         backtrack_info backtrack_record = results[idx];
-        cout << "\n";
         for(size_t base = 0; base < backtrack_record.reference_sequence.size(); base++){
             cout << backtrack_record.reference_sequence[base];
         }
@@ -267,6 +269,7 @@ void LinearSmithWaterman::print_results(){
         for(size_t base = 0; base < backtrack_record.pair_relation.size(); base++){
             cout << backtrack_record.pair_relation[base];
         }
+        cout << "\n";
         for(size_t base = 0; base < backtrack_record.query_sequence.size(); base++){
             cout << backtrack_record.query_sequence[base];
         }

@@ -10,29 +10,21 @@
 // Defining this will test all of the sequences in the input file
 #define TEST_ALL
 
-/*
-    THINGS TO CONSIDER FOR OPTIMIZATION
-    1. Complete removal of the scoring matrix altogether (Use of warp shuffling and shared memory)
-    2. Using 16x2 DPX instructions to have a thread work on 2 cells concurrently
-
-*/
-
-// NEEDLEMAN WUNSCH BASELINE KERNEL
+// SMITH WATERMAN BASELINE KERNEL
 
 __global__ void 
-banded_smith_waterman_kernel(
+smith_waterman_kernel(
     int *scoringMatrix, directionMain *backtrackMatrix,
     const char *queryString, const char *referenceString,
     const int queryLength, const int referenceLength,
     const int matchWeight, const int mismatchWeight, 
-    const int gapWeight, const int bandWidth)
+    const int gapWeight)
 {
     // We are only launching 1 block
     // Thus, each thread will only have a unique threadID that differentiates the threads
-    const int tid = threadIdx.x; //tid is thread index within EACH BLOCK
-    const int threadCount = blockDim.x; //total threads within the block
+    const int tid = threadIdx.x;
 
-    // The matrices are of size (queryLength + 1) * (referenceLength + 1) - this is to account for gap penalties on either side
+    // The matrices are of size (queryLength + 1) * (referenceLength + 1)
     const int numRows = queryLength + 1;
     const int numCols = referenceLength + 1;
 
@@ -41,16 +33,13 @@ banded_smith_waterman_kernel(
     // Used for when a thread has to iterate over more than one col/row
     int elementIdx;
 
-
-    //THIS NEXT TWO SECTIONS ARE INITIALIZING FIRST ROW AND COLUMN AND ARE EMPTY
-
     // Initialize the top row
     // Writing in DRAM burst for faster updating
     elementIdx = tid;
     while(elementIdx < numCols) {
         scoringMatrix[elementIdx] = 0;
-        backtrackMatrix[elementIdx] = NONE_MAIN;
-        elementIdx += threadCount;
+        backtrackMatrix[elementIdx] = NONE_MAIN; // null insertions?
+        elementIdx += BLOCK_SIZE;
     }
 
     // Initialize the left col
@@ -58,8 +47,8 @@ banded_smith_waterman_kernel(
     elementIdx = tid;
     while(elementIdx < numRows) {
         scoringMatrix[elementIdx*numCols] = 0;
-        backtrackMatrix[elementIdx*numCols] = NONE_MAIN;
-        elementIdx += threadCount;
+        backtrackMatrix[elementIdx*numCols] = NONE_MAIN; // null insertions?
+        elementIdx += BLOCK_SIZE;
     }
 
     if (tid == 0) {
@@ -82,12 +71,11 @@ banded_smith_waterman_kernel(
 
     // Each thread needs to iterate through the loop to be able to make the __syncthreads() call
     // All threads need to be able to reach the __syncthreads() call
-    const int differentRows = ((numRows - 1) / BLOCK_SIZE) + 1; //Each thread handles a row at a time in chunks of BLOCK_SIZE - thread 0 handles row 1, 33, 65, etc
+    const int differentRows = ((numRows - 1) / BLOCK_SIZE) + 1;
 
     // Every thread gets a row and char
     int rowIdx = tid + 1;
     char queryChar = queryString[rowIdx - 1];
-
 
     int cell00Idx;
     int cell01Idx;
@@ -99,58 +87,57 @@ banded_smith_waterman_kernel(
         // If the thread in the warp is outside the matrix, wait for the other threads
         if (rowIdx < numRows) {
 
-            int adjColStart = max(1, rowIdx - bandWidth);
-            int adjColEnd = min(numCols, rowIdx + bandWidth + 1);
-
             // Each later thread must wait for the previous thread
             int adjCol = 1 - tid;
             
             // Each thread must go through the whole row
             // BUT, there is an adjustment that each thread must wait for
-            for (int colIdx = adjColStart; colIdx < adjColEnd; ++colIdx) {
+            for (int colIdx = 1; colIdx < (numCols+numRows); ++colIdx) {
 
                 // Setup cell indices once a thread can start executing
                 if(adjCol == 1){
-                    cell00Idx = (rowIdx-1)*numCols + colIdx - 1;
-                    cell01Idx = (rowIdx-1)*numCols + colIdx;
-                    cell10Idx = rowIdx*numCols + colIdx - 1;
-                    cell11Idx = rowIdx*numCols + colIdx;
+                    cell00Idx = (rowIdx-1)*numCols + adjCol - 1;
+                    cell01Idx = (rowIdx-1)*numCols + adjCol;
+                    cell10Idx = rowIdx*numCols + adjCol - 1;
+                    cell11Idx = rowIdx*numCols + adjCol; 
                 }
 
                 // Main cell updating
                 if((adjCol > 0) && (adjCol < numCols)){
-                    char referenceChar = referenceString[colIdx - 1];
+
+                    char referenceChar = referenceString[adjCol - 1];
                     directionMain cornerDirection = NONE_MAIN;
                     bool pred;
-                        
+
                     // Determine if match
                     bool isMatch = (queryChar == referenceChar);
                     cornerDirection = isMatch ? MATCH : MISMATCH;
-        
+    
                     // Get all the possible scores
                     int matchMismatchScore = isMatch ? scoringMatrix[cell00Idx] + matchWeight : scoringMatrix[cell00Idx] + mismatchWeight;
                     int queryDeletionScore = scoringMatrix[cell01Idx] + gapWeight;
                     int queryInsertionScore = scoringMatrix[cell10Idx] + gapWeight;
-        
+    
                     // Find the largest of the 3 scores
                     // Utilizing DPX instructions for updating
                     // pred = (queryDeletionScore >= matchMismatchScore)
                     int largestScore;
-                    largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
-                    if (pred) cornerDirection = QUERY_DELETION;
-                        
-                    largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
+
+                    largestScore = __vibmax_s32(queryInsertionScore, matchMismatchScore, &pred);
                     if (pred) cornerDirection = QUERY_INSERTION;
 
-                    largestScore = __vibmax_s32(0, largestScore, &pred);
+                    largestScore = __vibmax_s32(queryDeletionScore, largestScore, &pred);
+                    if (pred) cornerDirection = QUERY_DELETION;
+
+                    largestScore = __vibmax_s32(0, largestScore, &pred); // max(0, largestScore)
                     if (pred) cornerDirection = NONE_MAIN;
-        
+
                     // Update scoring matrix and incrementing pointers
                     scoringMatrix[cell11Idx] = largestScore;
                     backtrackMatrix[cell11Idx] = cornerDirection;
                     cell00Idx += 1;
                     cell01Idx += 1;
-                    cell10Idx += 1; IS THIS NEEDED????
+                    cell10Idx += 1;
                     cell11Idx += 1;
                 }
 
@@ -162,7 +149,7 @@ banded_smith_waterman_kernel(
 
         // All previous threads must finish before moving onto the next row
         __syncthreads();
-
+        
         rowIdx += BLOCK_SIZE;
         queryChar = queryString[rowIdx - 1];
 
@@ -170,7 +157,6 @@ banded_smith_waterman_kernel(
 
     /* --- (END) POPULATING THE SCORING MATRIX -- */
 }
-
 
 void
 handleErrs(
@@ -183,7 +169,6 @@ handleErrs(
         exit(1);
     }
 }
-
 
 int main(int argc, char *argv[]) {
 
@@ -210,13 +195,13 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "usage: main -pairs <InSeqFile> -match <matchWeight> -mismatch <mismatchWeight> -gap <gapWeight> \n");
         exit(EXIT_FAILURE);
     }
-    
+
     // Get args
     char *pairFileName;
     int matchWeight     = 3;
     int mismatchWeight  = -1;
     int gapWeight       = -2;
-    int threadCount     = 32;
+    // int threadCount     = 32;
     if(strcmp(argv[1], "-pairs") == 0) {
         pairFileName = argv[2];
     }
@@ -229,9 +214,9 @@ int main(int argc, char *argv[]) {
     if(argc > 7 && strcmp(argv[7], "-gap") == 0) {
         gapWeight = atoi(argv[8]);
     }
-    if(argc > 9 && strcmp(argv[9], "-threads-per-alignment") == 0) {
-        threadCount = atoi(argv[10]);
-    }
+    // if(argc > 9 && strcmp(argv[9], "-threads-per-alignment") == 0) {
+    //     threadCount = atoi(argv[10]);
+    // }
 
     // Parse input file
     printf("Parsing input file: %s\n", pairFileName);
@@ -244,7 +229,6 @@ int main(int argc, char *argv[]) {
     // Start timer
     uint64_t start_time = start_timer();
     #ifdef TEST_ALL
-        
         // Copy over the sequences
         char* deviceSequences;
 
@@ -257,10 +241,8 @@ int main(int argc, char *argv[]) {
             cudaMemcpy(deviceSequences, sequences, (fileInfo.numBytes) * sizeof(char), cudaMemcpyHostToDevice),
             "FAILED TO COPY MEMORY FOR ALL SEQUENCES\n"
         );
-
         // Run the kernel on every sequence
         for(size_t i = 0; i < fileInfo.numPairs; i++){
-
             char *referenceString = &sequences[sequenceIdxs[i].referenceIdx];
             char *queryString = &sequences[sequenceIdxs[i].queryIdx];
 
@@ -281,7 +263,7 @@ int main(int argc, char *argv[]) {
             );
 
             // Need to launch kernel
-            banded_smith_waterman_kernel<<<1, BLOCK_SIZE>>>(
+            smith_waterman_kernel<<<1, BLOCK_SIZE>>>(
                 deviceScoringMatrix, deviceBacktrackMatrix,
                 deviceSequences + sequenceIdxs[i].queryIdx, deviceSequences + sequenceIdxs[i].referenceIdx, 
                 sequenceIdxs[i].querySize, sequenceIdxs[i].referenceSize, 
@@ -312,9 +294,26 @@ int main(int argc, char *argv[]) {
             cudaFree(deviceScoringMatrix);
             cudaFree(deviceBacktrackMatrix);
 
+            const int numRows = queryLength + 1;
+            const int numCols = referenceLength + 1;
+
+            int maxScoringRow = 0;
+            int maxScoringCol = 0;
+            int maxScore = 0;
+            for (int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+                for (int colIdx = 0; colIdx < numCols; ++colIdx) {
+                    if (hostScoringMatrix[(rowIdx * numCols) + colIdx] > maxScore) {
+                        maxScore = hostScoringMatrix[(rowIdx * numCols) + colIdx];
+                        maxScoringRow = rowIdx;
+                        maxScoringCol = colIdx;
+                    }
+                }
+            }
+
             // Backtrack matrices
-            printf("%d | %d\n", i, hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
-            backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
+            printf("%d | %d\n", i, hostScoringMatrix[(maxScoringRow * numCols) + maxScoringCol]);
+            
+            backtrackSW(maxScoringRow, maxScoringCol, numCols, hostBacktrackMatrix, referenceString, queryString);
 
             // Free data arrays
             delete[] hostScoringMatrix;
@@ -376,7 +375,7 @@ int main(int argc, char *argv[]) {
 
         // Need to launch singular kernel
         // Launching a kernel with 1 block with threadCount threads to populate scoring matrix
-        banded_smith_waterman_kernel<<<1, BLOCK_SIZE>>>(
+        smith_waterman_kernel<<<1, BLOCK_SIZE>>>(
             deviceScoringMatrix, deviceBacktrackMatrix,
             deviceQueryString, deviceReferenceString, 
             queryLength, referenceLength, 
