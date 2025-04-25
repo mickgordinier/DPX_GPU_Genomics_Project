@@ -39,6 +39,9 @@ needleman_wunsch_kernel(
     const char *queryString = allSequences + sequenceInfo.queryIdx;
     const char *referenceString = allSequences + sequenceInfo.referenceIdx;
 
+    const int queryLength = sequenceInfo.querySize;
+    const int referenceLength = sequenceInfo.referenceSize;
+
     // The matrices are of size (queryLength + 1) * (referenceLength + 1)
     const int numRows = sequenceInfo.querySize + 1;
     const int numCols = sequenceInfo.referenceSize + 1;
@@ -417,6 +420,8 @@ int main(int argc, char *argv[]) {
             cudaMalloc(&deviceBacktrackStringRet, totalStringsSize * sizeof(char)),
             "FAILED TO ALLOCATE MEMORY TO BACKTRACKING STRINGS\n"
         );
+
+        int stringLengthMax = (largestReferenceLength+largestQueryLength+1);
 
         memalloc_time += get_time() - start_memalloc;
 
