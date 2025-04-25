@@ -14,7 +14,7 @@ struct s16x2 {
 };
 
 /* pack 2 16-bit integers into 1 32-bit integer (upper 16 bits are valA, lower 16 bits are valB) */
-__device__ uint32_t pack_s16x2(uint16_t valA, uint16_t valB){
+__device__ uint32_t pack_s16x2(int16_t valA, int16_t valB){
     return ((static_cast<uint32_t>(valA) << 16) | static_cast<uint32_t>(valB));
 }
 
@@ -159,6 +159,11 @@ smith_waterman(
 
     __shared__ int16_t finalScoreA;
     __shared__ int16_t finalScoreB;
+
+    if (tid == 0){
+        finalScoreA = 0;
+        finalScoreB = 0;
+    }
     
     /* use the longer of the two alignments to determine loop bounds */
     const int numRows = max(numRowsA, numRowsB);
@@ -173,6 +178,8 @@ smith_waterman(
 
     char queryCharA = '\0', queryCharB = '\0';
     char referenceCharA = '\0', referenceCharB = '\0';
+
+    int localMax = 0;
 
     // Going through all of the rows each thread has to do
     for (int stripeStart = 1; stripeStart < numRows; stripeStart+=BLOCK_SIZE){
@@ -223,7 +230,6 @@ smith_waterman(
                 if (adj_col-1 < referenceLengthB){
                     referenceCharB = referenceStringB[adj_col-1];
                 }
-                
 
                 directionMain cornerDirectionA = NONE_MAIN;
                 bool isMatchA = (queryCharA == referenceCharA);
@@ -274,7 +280,6 @@ smith_waterman(
                 int matrixIdxA = (stripeStartIdx * (BLOCK_SIZE+numColsA-1) * BLOCK_SIZE) + ((col - 1) * BLOCK_SIZE) + tid;
                 int matrixIdxB = (stripeStartIdx * (BLOCK_SIZE+numColsB-1) * BLOCK_SIZE) + ((col - 1) * BLOCK_SIZE) + tid;
                 
-                
                 if (adj_col < numColsA && row < numRowsA){
                     backtrackMatrixA[matrixIdxA] = cornerDirectionA;
                 }
@@ -283,30 +288,33 @@ smith_waterman(
                     backtrackMatrixB[matrixIdxB] = cornerDirectionB;
                 }
 
-
                 left = largestScore;
                 
                 /* last thread in warp stores its scores in shared memory for t0 to access */
                 if (tid == (BLOCK_SIZE - 1)){
                     warpEdgeScore[adj_col] = largestScore;
                 }
-                
 
                 leftDiag = up;
+
             }
-            
 
             /*  top value for thread n + 1 is thread n's largestScore (just calculated value)*/
             up = __shfl_up_sync(0xffffffff, largestScore, 1);
 
-            if (row == numRowsA-1 && adj_col == numColsA-1) {
+            int16_t scoreA = static_cast<int16_t>((largestScore >> 16));
+            int16_t scoreB = static_cast<int16_t>(largestScore & 0xFFFF);
+
+            if (row <= numRowsA-1 && adj_col <= numColsA-1 && scoreA > finalScoreA) {
                 /* final score for alignment A is the upper 16 bits of the largestScore */
-                finalScoreA = static_cast<int16_t>((largestScore >> 16));
+                printf("updating finalScoreA from %x to %x\n", finalScoreA, scoreA);
+                finalScoreA = scoreA;
             }
 
-            if (row == numRowsB-1 && adj_col == numColsB-1){
+            if (row <= numRowsB-1 && adj_col <= numColsB-1 && scoreB > finalScoreB){
                 /* final score for alignment B is the lower 16 bits of the largestScore */
-                finalScoreB = static_cast<int16_t>(largestScore & 0xFFFF);
+                printf("updating finalScoreB from %x to %x\n", finalScoreB, scoreB);
+                finalScoreB = scoreB;
             }
         }
 
@@ -315,6 +323,7 @@ smith_waterman(
 
     if (tid == 0) {
         /* NB: similarityScores contains uint32_t -- depending on host to split scores properly between two alignments */
+        printf("finalScoreA: %x, finalScoreB: %x\n", finalScoreA, finalScoreB);
         similarityScores[blockIdx.x] = pack_s16x2(finalScoreA, finalScoreB);
     }
 
