@@ -4,3 +4,5 @@ python/__pycache__/
 input-datasets*
 *log*
 *.o
+cuda/runjob
+Makefile

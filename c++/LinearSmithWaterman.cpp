@@ -259,16 +259,16 @@ void LinearSmithWaterman::print_results(){
             cout << "Sequence Pair: " << idx << "\n";
         #endif
         backtrack_info backtrack_record = results[idx];
-        for(size_t base = 0; base < backtrack_record.query_sequence.size(); base++){
-            cout << backtrack_record.query_sequence[base];
+        cout << "\n";
+        for(size_t base = 0; base < backtrack_record.reference_sequence.size(); base++){
+            cout << backtrack_record.reference_sequence[base];
         }
         cout << "\n";
         for(size_t base = 0; base < backtrack_record.pair_relation.size(); base++){
             cout << backtrack_record.pair_relation[base];
         }
-        cout << "\n";
-        for(size_t base = 0; base < backtrack_record.reference_sequence.size(); base++){
-            cout << backtrack_record.reference_sequence[base];
+        for(size_t base = 0; base < backtrack_record.query_sequence.size(); base++){
+            cout << backtrack_record.query_sequence[base];
         }
         #ifdef PRINT_EXTRA
             cout << "\n====================\n";

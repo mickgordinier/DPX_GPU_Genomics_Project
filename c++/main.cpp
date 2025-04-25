@@ -19,8 +19,8 @@
 #define THREADS_PER_BATCH 20
 
 // Choose what alignment we are doing (ONLY CHOOSE ONE)
-//#define LSW_ENABLE
-#define LNW_ENABLE
+#define LSW_ENABLE
+// #define LNW_ENABLE
 //#define ANW_ENABLE
 
 

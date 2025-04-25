@@ -23,7 +23,6 @@ smith_waterman_kernel(
         // We are only launching 1 block
     // Thus, each thread will only have a unique threadID that differentiates the threads
     const int tid = threadIdx.x;
-    const int threadCount = blockDim.x;
 
     // The matrices are of size (queryLength + 1) * (referenceLength + 1)
     const int numRows = queryLength + 1;
@@ -40,7 +39,7 @@ smith_waterman_kernel(
     while(elementIdx < numCols) {
         scoringMatrix[elementIdx] = 0;
         backtrackMatrix[elementIdx] = NONE_MAIN; // null insertions?
-        elementIdx += threadCount;
+        elementIdx += BLOCK_SIZE;
     }
 
     // Initialize the left col
@@ -49,7 +48,7 @@ smith_waterman_kernel(
     while(elementIdx < numRows) {
         scoringMatrix[elementIdx*numCols] = 0;
         backtrackMatrix[elementIdx*numCols] = NONE_MAIN; // null insertions?
-        elementIdx += threadCount;
+        elementIdx += BLOCK_SIZE;
     }
 
     if (tid == 0) {
@@ -123,11 +122,12 @@ smith_waterman_kernel(
                     // Utilizing DPX instructions for updating
                     // pred = (queryDeletionScore >= matchMismatchScore)
                     int largestScore;
-                    largestScore = __vibmax_s32(queryDeletionScore, matchMismatchScore, &pred);
-                    if (pred) cornerDirection = QUERY_DELETION;
 
-                    largestScore = __vibmax_s32(queryInsertionScore, largestScore, &pred);
+                    largestScore = __vibmax_s32(queryInsertionScore, matchMismatchScore, &pred);
                     if (pred) cornerDirection = QUERY_INSERTION;
+
+                    largestScore = __vibmax_s32(queryDeletionScore, largestScore, &pred);
+                    if (pred) cornerDirection = QUERY_DELETION;
 
                     largestScore = __vibmax_s32(0, largestScore, &pred); // max(0, largestScore)
                     if (pred) cornerDirection = NONE_MAIN;
@@ -201,7 +201,7 @@ int main(int argc, char *argv[]) {
     int matchWeight     = 3;
     int mismatchWeight  = -1;
     int gapWeight       = -2;
-    int threadCount     = 32;
+    // int threadCount     = 32;
     if(strcmp(argv[1], "-pairs") == 0) {
         pairFileName = argv[2];
     }
@@ -214,9 +214,9 @@ int main(int argc, char *argv[]) {
     if(argc > 7 && strcmp(argv[7], "-gap") == 0) {
         gapWeight = atoi(argv[8]);
     }
-    if(argc > 9 && strcmp(argv[9], "-threads-per-alignment") == 0) {
-        threadCount = atoi(argv[10]);
-    }
+    // if(argc > 9 && strcmp(argv[9], "-threads-per-alignment") == 0) {
+    //     threadCount = atoi(argv[10]);
+    // }
 
     // Parse input file
     printf("Parsing input file: %s\n", pairFileName);
@@ -294,16 +294,26 @@ int main(int argc, char *argv[]) {
             cudaFree(deviceScoringMatrix);
             cudaFree(deviceBacktrackMatrix);
 
+            const int numRows = queryLength + 1;
+            const int numCols = referenceLength + 1;
+
+            int maxScoringRow = 0;
+            int maxScoringCol = 0;
+            int maxScore = 0;
+            for (int rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+                for (int colIdx = 0; colIdx < numCols; ++colIdx) {
+                    if (hostScoringMatrix[(rowIdx * numCols) + colIdx] > maxScore) {
+                        maxScore = hostScoringMatrix[(rowIdx * numCols) + colIdx];
+                        maxScoringRow = rowIdx;
+                        maxScoringCol = colIdx;
+                    }
+                }
+            }
+
             // Backtrack matrices
-            printf("%d | %d\n", i, hostScoringMatrix[(referenceLength + 1) * (queryLength + 1) - 1]);
+            printf("%d | %d\n", i, hostScoringMatrix[(maxScoringRow * numCols) + maxScoringCol]);
             
-            
-            //backtrackNW(hostBacktrackMatrix, referenceString, referenceLength, queryString, queryLength);
-            
-            
-            // need changes to backtrackNW^^
-
-
+            backtrackSW(maxScoringRow, maxScoringCol, numCols, hostBacktrackMatrix, referenceString, queryString);
 
             // Free data arrays
             delete[] hostScoringMatrix;
