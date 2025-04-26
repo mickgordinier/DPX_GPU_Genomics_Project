@@ -19,14 +19,21 @@ print_vars:
 test: test.cu
 	$(NVCC) -o test test.cu
 
+
 LSW: LinearSmithWaterman.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
+
+SWOPT: LinearSmithWatermanOpt.cu $(CPP_SOURCES)
+	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -g -o $@
+
 
 BSW: LinearSmithWaterman.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
+
 ANW: AffineNeedlemanWunsch.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
+	
 
 LNW: LinearNeedlemanWunsch.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
@@ -66,15 +73,6 @@ LNW17: LinearNeedlemanWunschV17.cu $(CPP_SOURCES)
 
 LNW18: LinearNeedlemanWunschV18.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -g -o $@
-
-SW: LinearSmithWaterman.cu $(CPP_SOURCES)
-	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -g -o $@
-
-SWOPT: LinearSmithWatermanOpt.cu $(CPP_SOURCES)
-	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -g -o $@
-
-ANW: AffineNeedlemanWunsch.cu $(CPP_SOURCES)
-	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
 %: %.cu
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@

@@ -23,15 +23,19 @@ __device__ __host__ s16x2 unpack_s16x2(uint32_t val){
     return {static_cast<int16_t>(val >> 16), static_cast<int16_t>(val & 0xFFFF)};
 }
 
-__device__ void backtracking(char *backtrackStringsRet, directionMain *backtrackMatrix, const char * referenceString, const char * queryString, int *stringSpacing, int numRows, int numCols, int &referenceStrIdx, int alignmentStrIdx, int queryStrIdx){
+__device__ void backtracking(
+    char *backtrackStringsRet, directionMain *backtrackMatrix, 
+    const char * referenceString, const char * queryString, 
+    const int numRows, const int numCols, 
+    int &referenceStrIdx, int alignmentStrIdx, int queryStrIdx,
+    int currentMemoRow, int currentMemoCol
+    )
+{
     backtrackStringsRet[referenceStrIdx] = '\0';
     backtrackStringsRet[alignmentStrIdx] = '\0';
     backtrackStringsRet[queryStrIdx] = '\0';
 
-    int currentMemoRow = numRows - 1;
-    int currentMemoCol = numCols - 1;
-
-    while ((currentMemoRow != 0) && (currentMemoCol != 0)) {
+    while ((currentMemoRow != 0) || (currentMemoCol != 0) || (backtrackMatrix[(currentMemoRow * numCols) + currentMemoCol] == NONE_MAIN)) {
         referenceStrIdx--;
         alignmentStrIdx--;
         queryStrIdx--;
@@ -87,26 +91,6 @@ __device__ void backtracking(char *backtrackStringsRet, directionMain *backtrack
 
         } // end switch
     } // end while
-
-    while (currentMemoRow != 0) {
-        referenceStrIdx--;
-        alignmentStrIdx--;
-        queryStrIdx--;
-        backtrackStringsRet[referenceStrIdx] = '_';
-        backtrackStringsRet[alignmentStrIdx] = ' ';
-        backtrackStringsRet[queryStrIdx] = queryString[currentMemoRow-1];
-        --currentMemoRow;
-    }
-    
-    while (currentMemoCol != 0) {
-        referenceStrIdx--;
-        alignmentStrIdx--;
-        queryStrIdx--;
-        backtrackStringsRet[referenceStrIdx] = referenceString[currentMemoCol-1];
-        backtrackStringsRet[alignmentStrIdx] = ' ';
-        backtrackStringsRet[queryStrIdx] = '_';
-        --currentMemoCol;
-    }
 }
 
 __global__ void 
@@ -157,12 +141,12 @@ smith_waterman(
     const int numRowsB = sequenceInfoB.querySize + 1;
     const int numColsB = sequenceInfoB.referenceSize + 1;
 
-    __shared__ int16_t finalScoreA;
-    __shared__ int16_t finalScoreB;
+    __shared__ uint32_t finalScore;
+    __shared__ int finalScoreACoords[2];
+    __shared__ int finalScoreBCoords[2];
 
     if (tid == 0){
-        finalScoreA = 0;
-        finalScoreB = 0;
+        finalScore = 0;
     }
     
     /* use the longer of the two alignments to determine loop bounds */
@@ -179,16 +163,34 @@ smith_waterman(
     char queryCharA = '\0', queryCharB = '\0';
     char referenceCharA = '\0', referenceCharB = '\0';
 
-    int localMax = 0;
+    bool predA, predB;
+
+    if (tid == 0 &&sequenceIdxA == 0) {
+
+        printf("Num Rows A: %d Num Cols A: %d\n", numRowsA, numColsA);
+        printf("Num Rows B: %d Num Cols B: %d\n", numRowsB, numColsB);
+        printf("Num Rows Max: %d Num Cols Max: %d\n", numRows, numCols);
+    }
 
     // Going through all of the rows each thread has to do
     for (int stripeStart = 1; stripeStart < numRows; stripeStart+=BLOCK_SIZE){
 
         int row = stripeStart + tid;
-        int32_t largestScore;
 
+        uint32_t rowLargestScore = 0;
+        int rowLargestScoreACol = 0;
+        int rowLargestScoreBCol = 0;
+        
+        if (sequenceIdxA == 0 && tid == 0) {
+            printf("Row: %d Col: !! Score: ??\n", row);
+        }
+        
         /* threads outside of bounds should abort */
-        if (row >= numRows) return;
+        if (row < numRows) return;
+        
+        if (sequenceIdxA == 0 && tid == 0) {
+            printf("Row: %d Col: ?? Score: ??\n", row);
+        }
 
         leftDiag = pack_s16x2(0, 0);
         left = pack_s16x2(0, 0);
@@ -206,7 +208,10 @@ smith_waterman(
         }
 
         for (int col = 1; col < (numCols+BLOCK_SIZE); ++col){
+
             int adj_col = col - tid;
+
+            uint32_t elementLargestScore = pack_s16x2(0, 0);
 
             if (row == 1){
                 leftDiag = pack_s16x2(0, 0);
@@ -218,10 +223,8 @@ smith_waterman(
                 up = warpEdgeScore[adj_col];
                 leftDiag = (adj_col == 1) ? pack_s16x2(0, 0) : warpEdgeScore[adj_col - 1];
             }
-
             
             if (adj_col > 0 && adj_col < numCols){
-                largestScore = pack_s16x2(0, 0);
                 
                 if (adj_col-1 < referenceLengthA){
                     referenceCharA = referenceStringA[adj_col-1];
@@ -257,12 +260,11 @@ smith_waterman(
                 uint32_t matchMismatchScore = pack_s16x2(matchMismatchScoreA, matchMismatchScoreB);
                 uint32_t queryInsertionScore = pack_s16x2(queryInsertionScoreA, queryInsertionScoreB);
                     
-                bool predA, predB;
-                largestScore = __vibmax_s16x2(queryDeletionScore, matchMismatchScore, &predA, &predB);
+                elementLargestScore = __vibmax_s16x2(queryDeletionScore, matchMismatchScore, &predA, &predB);
                 if (predA) cornerDirectionA = QUERY_DELETION;
                 if (predB) cornerDirectionB = QUERY_DELETION;
                 
-                largestScore = __vibmax_s16x2(queryInsertionScore, largestScore, &predA, &predB);
+                elementLargestScore = __vibmax_s16x2(queryInsertionScore, elementLargestScore, &predA, &predB);
                 if (predA) cornerDirectionA = QUERY_INSERTION;
                 if (predB) cornerDirectionB = QUERY_INSERTION;
                     
@@ -288,43 +290,63 @@ smith_waterman(
                     backtrackMatrixB[matrixIdxB] = cornerDirectionB;
                 }
 
-                left = largestScore;
+                left = elementLargestScore;
                 
                 /* last thread in warp stores its scores in shared memory for t0 to access */
                 if (tid == (BLOCK_SIZE - 1)){
-                    warpEdgeScore[adj_col] = largestScore;
+                    warpEdgeScore[adj_col] = elementLargestScore;
                 }
 
                 leftDiag = up;
 
+                rowLargestScore = __vibmax_s16x2(rowLargestScore, elementLargestScore, &predA, &predB);
+                if (!predA) rowLargestScoreACol = adj_col;
+                if (!predB) rowLargestScoreBCol = adj_col;
             }
 
             /*  top value for thread n + 1 is thread n's largestScore (just calculated value)*/
-            up = __shfl_up_sync(0xffffffff, largestScore, 1);
+            up = __shfl_up_sync(0xffffffff, elementLargestScore, 1);
 
-            int16_t scoreA = static_cast<int16_t>((largestScore >> 16));
-            int16_t scoreB = static_cast<int16_t>(largestScore & 0xFFFF);
 
-            if (row <= numRowsA-1 && adj_col <= numColsA-1 && scoreA > finalScoreA) {
-                /* final score for alignment A is the upper 16 bits of the largestScore */
-                printf("updating finalScoreA from %x to %x\n", finalScoreA, scoreA);
-                finalScoreA = scoreA;
+            if (adj_col == numColsA-1) {
+                finalScore = __vibmax_s16x2(
+                    finalScore, 
+                    rowLargestScore & 0xFFFF0000, 
+                    &predA, &predB);
+    
+                if (!predA) {
+                    finalScoreACoords[0] = row;
+                    finalScoreACoords[1] = rowLargestScoreACol;
+                }
             }
 
-            if (row <= numRowsB-1 && adj_col <= numColsB-1 && scoreB > finalScoreB){
-                /* final score for alignment B is the lower 16 bits of the largestScore */
-                printf("updating finalScoreB from %x to %x\n", finalScoreB, scoreB);
-                finalScoreB = scoreB;
+            if (adj_col == numColsB-1) {
+                finalScore = __vibmax_s16x2(
+                    finalScore, 
+                    rowLargestScore & 0x0000FFFF, 
+                    &predA, &predB);
+    
+                if (!predB) {
+                    finalScoreBCoords[0] = row;
+                    finalScoreBCoords[1] = rowLargestScoreBCol;
+                }
+            }
+
+            if (sequenceIdxA == 0) {
+                printf("Row: %d Col: %d Score: %d\n", row, adj_col, elementLargestScore);
             }
         }
 
         ++stripeStartIdx;
     }
 
-    if (tid == 0) {
+    __syncthreads();
+
+
+    if (tid == 0 && sequenceIdxA == 0) {
         /* NB: similarityScores contains uint32_t -- depending on host to split scores properly between two alignments */
-        printf("finalScoreA: %x, finalScoreB: %x\n", finalScoreA, finalScoreB);
-        similarityScores[blockIdx.x] = pack_s16x2(finalScoreA, finalScoreB);
+        printf("finalScore: %x\n", finalScore);
+        similarityScores[blockIdx.x] = finalScore;
     }
 
     /* --- (END) POPULATING THE SCORING MATRIX -- */
@@ -337,14 +359,24 @@ smith_waterman(
         int alignmentStrIdx = referenceStrIdx + stringLengthMax;
         int queryStrIdx = alignmentStrIdx + stringLengthMax;
 
-        backtracking(backtrackStringsRet, backtrackMatrixA, referenceStringA, queryStringA, stringSpacing, numRowsA, numColsA, referenceStrIdx, alignmentStrIdx, queryStrIdx);
+        backtracking(backtrackStringsRet, backtrackMatrixA, 
+                    referenceStringA, queryStringA, 
+                    numRowsA, numColsA, 
+                    referenceStrIdx, alignmentStrIdx, queryStrIdx,
+                    finalScoreACoords[0], finalScoreACoords[1]);
+
         stringSpacing[2 * blockIdx.x] = referenceStrIdx;
 
         referenceStrIdx = (stringLengthMax * 3) * (2 * blockIdx.x + 1) + (stringLengthMax-1);
         alignmentStrIdx = referenceStrIdx + stringLengthMax;
         queryStrIdx = alignmentStrIdx + stringLengthMax;
 
-        backtracking(backtrackStringsRet, backtrackMatrixB, referenceStringB, queryStringB, stringSpacing, numRowsB, numColsB, referenceStrIdx, alignmentStrIdx, queryStrIdx);
+        backtracking(backtrackStringsRet, backtrackMatrixB, 
+                    referenceStringB, queryStringB, 
+                    numRowsB, numColsB, 
+                    referenceStrIdx, alignmentStrIdx, queryStrIdx,
+                    finalScoreBCoords[0], finalScoreBCoords[1]);
+
         stringSpacing[(2* blockIdx.x) + 1] = referenceStrIdx;
     }
 }
