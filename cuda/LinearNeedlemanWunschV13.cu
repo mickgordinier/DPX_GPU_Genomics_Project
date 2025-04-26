@@ -513,6 +513,12 @@ int main(int argc, char *argv[]) {
     cudaFree(deviceAllSequenceInfo);
 
     uint64_t elapsed_time = get_elapsed_time();
+    printf("Number of cells: %d\n", fileInfo.numCells);
+    double kernel_time_double = ((double)kernel_time) / 1000000;
+    printf("Kernel time (sec): %f\n", kernel_time_double);
+    double GCUPS = (fileInfo.numCells / kernel_time_double) / 1000000000;
+    printf("GCUPS: %f\n", GCUPS);
+
     printf("Elapsed time (usec): %lld\n", elapsed_time);
     printf("Elapsed kernel time (usec): %lld\n", kernel_time);
     printf("Elapsed backtracking time (usec): %lld\n", backtracking_time);
