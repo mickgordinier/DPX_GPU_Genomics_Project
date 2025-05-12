@@ -1,8 +1,8 @@
 #include <stdio.h>  // For printf()
 #include <cstring> // Determining length of string
-#include "../c++/parseInput.h"
-#include "../c++/backtrack.h"
-#include "../c++/timing.h"
+#include "../../c++/parseInput.h"
+#include "../../c++/backtrack.h"
+#include "../../c++/timing.h"
 
 // Blocks are 1D with a size of the 32 threads (For 1 warp)
 #define BLOCK_SIZE 32
@@ -366,7 +366,6 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    printf("ALGO VERSION: 19\n");
     printf("Device count: %d\n", deviceCount);
     int device = 0;
     cudaDeviceProp deviceProp;
@@ -468,13 +467,6 @@ int main(int argc, char *argv[]) {
 
     memalloc_time += get_time() - start_memalloc;
 
-
-    char *hostBacktrackingStringRet;
-
-    char *prevDeviceBacktrackStringRet;
-    int prevStringLengthMax;
-
-
     // Run the kernel on every sequence
     for(size_t sequenceIdx = 0; sequenceIdx < fileInfo.numPairs; sequenceIdx+=BATCH_SIZE){
         start_memalloc = get_time();
@@ -543,39 +535,6 @@ int main(int argc, char *argv[]) {
             matchWeight, mismatchWeight, gapWeight,
             sequenceIdx, stringLengthMax
         );
-
-        if (sequenceIdx != 0) {
-
-            int prevSequenceStart = sequenceIdx - BATCH_SIZE;
-
-            uint64_t start_print = get_time();
-            for (int batchSequenceIdx = 0; batchSequenceIdx < BATCH_SIZE; batchSequenceIdx+=2) {
-
-                uint32_t packedScore = hostSimilarityScores[batchSequenceIdx/2];
-                s16x2 unpackedScore = unpack_s16x2(packedScore);
-                int16_t scoreA = unpackedScore.A;
-                int16_t scoreB = unpackedScore.B;
-            
-                // Backtrack matrices
-                printf("%d | %d\n", prevSequenceStart+batchSequenceIdx, scoreA);
-                int spacingA = hostStringSpacing[batchSequenceIdx];
-
-                printf("%s\n", hostBacktrackingStringRet + spacingA);
-                printf("%s\n", hostBacktrackingStringRet + prevStringLengthMax + spacingA);
-                printf("%s\n", hostBacktrackingStringRet + prevStringLengthMax + prevStringLengthMax + spacingA);
-
-                printf("%d | %d\n", prevSequenceStart+batchSequenceIdx+1, scoreB);
-                int spacingB = hostStringSpacing[batchSequenceIdx+1];
-                printf("%s\n", hostBacktrackingStringRet + spacingB);
-                printf("%s\n", hostBacktrackingStringRet + prevStringLengthMax + spacingB);
-                printf("%s\n", hostBacktrackingStringRet + prevStringLengthMax + prevStringLengthMax + spacingB);
-            }
-            printing_time += get_time() - start_print;
-
-            free(hostBacktrackingStringRet);
-            cudaFree(prevDeviceBacktrackStringRet);
-        }
-
         
         // Wait for kernel to finish
         handleErrs(
@@ -596,54 +555,43 @@ int main(int argc, char *argv[]) {
             "FAILED TO COPY SIMILARITY SCORES FROM DEVICE --> HOST\n"
         );
 
-        hostBacktrackingStringRet = (char *)malloc(stringLengthMax * 3 * BATCH_SIZE * sizeof(char));
+        char *hostBacktrackingStringRet = (char *)malloc(stringLengthMax * 3 * BATCH_SIZE * sizeof(char));
 
         handleErrs(
             cudaMemcpy(hostBacktrackingStringRet, deviceBacktrackStringRet, (stringLengthMax * 3) * BATCH_SIZE * sizeof(char), cudaMemcpyDeviceToHost),
             "FAILED TO COPY BACKTRACKING STRING FROM DEVICE --> HOST\n"
         );
 
-        prevDeviceBacktrackStringRet = deviceBacktrackStringRet;
-        prevStringLengthMax = prevStringLengthMax;
-
         memalloc_time += get_time() - start_memalloc;
 
+        uint64_t start_print = get_time();
+        for (int i = sequenceIdx; i < sequenceIdx+BATCH_SIZE; i+=2) {
+
+            uint32_t packedScore = hostSimilarityScores[(i-sequenceIdx)/2];
+            s16x2 unpackedScore = unpack_s16x2(packedScore);
+            int16_t scoreA = unpackedScore.A;
+            int16_t scoreB = unpackedScore.B;
+        
+            // Backtrack matrices
+            printf("%d | %d\n", i, scoreA);
+            int spacingA = hostStringSpacing[i-sequenceIdx];
+
+            printf("%s\n", hostBacktrackingStringRet + spacingA);
+            printf("%s\n", hostBacktrackingStringRet + stringLengthMax + spacingA);
+            printf("%s\n", hostBacktrackingStringRet + stringLengthMax + stringLengthMax + spacingA);
+
+            printf("%d | %d\n", i+1, scoreB);
+            int spacingB = hostStringSpacing[i+1-sequenceIdx];
+            printf("%s\n", hostBacktrackingStringRet + spacingB);
+            printf("%s\n", hostBacktrackingStringRet + stringLengthMax + spacingB);
+            printf("%s\n", hostBacktrackingStringRet + stringLengthMax + stringLengthMax + spacingB);
+        }
+        printing_time += get_time() - start_print;
+
+        free(hostBacktrackingStringRet);
+        cudaFree(deviceBacktrackStringRet);
         cudaFree(deviceMatricesAll);
     }
-
-
-
-    uint64_t start_print = get_time();
-
-    int prevSequenceStart = fileInfo.numPairs - BATCH_SIZE;
-
-    for (int batchSequenceIdx = 0; batchSequenceIdx < BATCH_SIZE; batchSequenceIdx+=2) {
-
-        uint32_t packedScore = hostSimilarityScores[batchSequenceIdx/2];
-        s16x2 unpackedScore = unpack_s16x2(packedScore);
-        int16_t scoreA = unpackedScore.A;
-        int16_t scoreB = unpackedScore.B;
-    
-        // Backtrack matrices
-        printf("%d | %d\n", prevSequenceStart+batchSequenceIdx, scoreA);
-        int spacingA = hostStringSpacing[batchSequenceIdx];
-
-        printf("%s\n", hostBacktrackingStringRet + spacingA);
-        printf("%s\n", hostBacktrackingStringRet + prevStringLengthMax + spacingA);
-        printf("%s\n", hostBacktrackingStringRet + prevStringLengthMax + prevStringLengthMax + spacingA);
-
-        printf("%d | %d\n", prevSequenceStart+batchSequenceIdx+1, scoreB);
-        int spacingB = hostStringSpacing[batchSequenceIdx+1];
-        printf("%s\n", hostBacktrackingStringRet + spacingB);
-        printf("%s\n", hostBacktrackingStringRet + prevStringLengthMax + spacingB);
-        printf("%s\n", hostBacktrackingStringRet + prevStringLengthMax + prevStringLengthMax + spacingB);
-    }
-    printing_time += get_time() - start_print;
-
-    free(hostBacktrackingStringRet);
-    cudaFree(prevDeviceBacktrackStringRet);
-
-
 
     cudaFree(deviceSequences);
     cudaFree(deviceAllSequenceInfo);

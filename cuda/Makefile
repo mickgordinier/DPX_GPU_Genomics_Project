@@ -6,8 +6,8 @@ CPP_SOURCES = ../c++/backtrack.cpp \
 							../c++/timing.cpp \
 							../c++/printLock.cpp
 				
-LNW_CU_SOURCES := $(wildcard LinearNeedlemanWunsch*.cu)
-LNW_EXECUTABLES := $(basename $(LNW_CU_SOURCES))
+LNW_CU_SOURCES := $(wildcard LNW/LinearNeedlemanWunsch*.cu)
+LNW_EXECUTABLES := $(notdir $(basename $(LNW_CU_SOURCES)))
 
 MANUAL_EXECUTABLES = BSW ANW LSW SW SWOPT BWS test
 
@@ -19,7 +19,7 @@ print_vars:
 	@echo "Manual Targets:   $(MANUAL_EXECUTABLES)"
 
 # Pattern rule for automatically detected LNW-style builds
-$(LNW_EXECUTABLES): %: %.cu $(CPP_SOURCES)
+$(LNW_EXECUTABLES): %: LNW/%.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
 
 
@@ -34,7 +34,6 @@ BSW: LinearSmithWaterman.cu $(CPP_SOURCES)
 
 ANW: AffineNeedlemanWunsch.cu $(CPP_SOURCES)
 	$(NVCC) $(NVCC_FLAGS) $< $(CPP_SOURCES) -o $@
-	
 
 clean:
 	rm -f $(ALL_EXECUTABLES) *.out
